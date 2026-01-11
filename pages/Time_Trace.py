@@ -148,12 +148,17 @@ else:
             if not default_signals and len(signal_choices) >= 2:
                 default_signals = signal_choices[:2]
             
+            def set_defaults():
+                st.session_state["selected_signals_ms"] = default_signals
+
             signal_list = st.sidebar.multiselect(
                 "Select signal (for plotting)", 
                 signal_choices, 
                 default=default_signals,
                 key="selected_signals_ms"
             )
+            
+            st.sidebar.button("Default plot", on_click=set_defaults)
     else:
         st.sidebar.info("Please select at least one discharge.")
 
