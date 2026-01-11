@@ -67,34 +67,49 @@ def get_all_available_shots(base_path):
 
 
 # --- Duration Calculation Function 
-def cal_duration(data, time, threshold_ratio=0.095):
-    """Calculates the duration for which data exceeds a threshold."""
-    if len(data) == 0 or np.all(data == 0): # Added check for all zeros
-        return 0, -1, -1
+def cal_duration(data, time, start_threshold_ratio=0.05, end_threshold_ratio=0.05):
+    """
+    Calculates the duration based on start and end thresholds relative to max value.
+    Start: First point > start_threshold_ratio * max
+    End: First point < end_threshold_ratio * max (AFTER max)
+    """
+    if len(data) == 0 or np.all(data == 0): 
+        return 0, -1, -1, None, None
 
     max_val = np.max(data)
-    # Handle cases where max_val might be very small but not zero, leading to tiny threshold
     if max_val == 0: 
-        return 0, -1, -1
+        return 0, -1, -1, None, None
         
-    threshold = threshold_ratio * max_val
-    valid_indices = np.where(data > threshold)[0]
-
-    if len(valid_indices) > 0:
-        start_idx = valid_indices[0]
-        end_idx = valid_indices[-1]
-        start_time, end_time = time[start_idx], time[end_idx]
-
-        duration = end_time - start_time
-        return duration, start_idx, end_idx
+    start_threshold = start_threshold_ratio * max_val
+    end_threshold = end_threshold_ratio * max_val
+    
+    peak_idx = np.argmax(data)
+    
+    # Find start index (search from beginning to peak)
+    # Using the first point that exceeds the start threshold
+    pre_peak_indices = np.where(data[:peak_idx+1] > start_threshold)[0]
+    if len(pre_peak_indices) > 0:
+        start_idx = pre_peak_indices[0]
     else:
-        return 0, -1, -1
+        start_idx = 0 # Fallback
+
+    # Find end index (search from peak to end)
+    # Using the first point that falls below the end threshold
+    post_peak_indices = np.where(data[peak_idx:] < end_threshold)[0]
+    if len(post_peak_indices) > 0:
+        end_idx = peak_idx + post_peak_indices[0]
+    else:
+        end_idx = len(data) - 1 # Fallback to end of data
+
+    start_time = time[start_idx]
+    end_time = time[end_idx]
+    duration = end_time - start_time
+    
+    return duration, start_idx, end_idx, start_time, end_time
 
 # --- Session State ---
 if "load_and_plot_clicked" not in st.session_state:
     st.session_state["load_and_plot_clicked"] = False
-if "calculate_duration_clicked" not in st.session_state:
-    st.session_state["calculate_duration_clicked"] = False
 
 
 # --- GET AVAILABLE SHOTS ---
@@ -107,10 +122,16 @@ else:
     st.sidebar.markdown("---") 
     st.sidebar.header("Plotting & Analysis Setup") 
 
+    if st.sidebar.button("Clear selections"):
+        st.session_state["selected_shots_ms"] = []
+        st.session_state["selected_signals_ms"] = []
+        st.rerun()
+
     selected_shots = st.sidebar.multiselect(
         "Select Discharges",
         options=all_available_shots,
-        default=[all_available_shots[0]] if all_available_shots else []
+        default=[all_available_shots[0]] if all_available_shots else [],
+        key="selected_shots_ms"
     )
 
     # --- Step 2: Pick signals (for plotting) ---
@@ -122,8 +143,17 @@ else:
         if not signal_choices:
             st.sidebar.warning(f"No signal files found for shot '{sample_shot_for_plotting_signals}'.")
         else:
-            default_signals = signal_choices[:2] if len(signal_choices) >= 2 else signal_choices
-            signal_list = st.sidebar.multiselect("Select signal (for plotting)", signal_choices, default=default_signals)
+            defaults_req = ["IOH1", "IT1", "ITV1", "VP0", "IP1", "HCN1", "HA"]
+            default_signals = [sig for sig in defaults_req if sig in signal_choices]
+            if not default_signals and len(signal_choices) >= 2:
+                default_signals = signal_choices[:2]
+            
+            signal_list = st.sidebar.multiselect(
+                "Select signal (for plotting)", 
+                signal_choices, 
+                default=default_signals,
+                key="selected_signals_ms"
+            )
     else:
         st.sidebar.info("Please select at least one discharge.")
 
@@ -186,21 +216,49 @@ else:
             subplot_rows = (num_plots + 1) // 2 
             subplot_cols = 2 if num_plots > 1 else 1 
     
-    # --- Buttons ---
+    # --- Buttons and Interaction ---
     st.sidebar.markdown("---")
-    col_btn1, col_btn2 = st.sidebar.columns(2)
-    if col_btn1.button("Load and Plot"):
+    
+    # Toggle for Highlight
+    highlight_interval = st.sidebar.toggle("Highlight Discharge Interval", value=False)
+    
+    if st.sidebar.button("Load and Plot"):
         st.session_state["load_and_plot_clicked"] = True
-        st.session_state["calculate_duration_clicked"] = False 
-
-    if col_btn2.button("Calculate Duration"):
-        st.session_state["calculate_duration_clicked"] = True
-        st.session_state["load_and_plot_clicked"] = False 
 
 
     # --- Plotting Logic ---
     if st.session_state["load_and_plot_clicked"] and selected_shots and signal_list:
-        st.write("### Plotting signals...")
+        st.write("### Plotting Signals")
+        
+        # Pre-calculate durations if highlight is ON
+        shot_durations = {}
+        if highlight_interval:
+            for shot in selected_shots:
+                # Load IP1 
+                ip_cols = ["IP1", "IP"] 
+                loaded = False
+                for ip_name in ip_cols:
+                    filename = f"{ip_name}.txt"
+                    file_path = os.path.join(BASE_PATH, shot)
+                    if os.path.exists(os.path.join(file_path, filename)):
+                        try:
+                            df_ip = load_signal(file_path, filename)
+                            df_ip = df_ip[(df_ip["Time"] >= t0) & (df_ip["Time"] <= t1)]
+                            if not df_ip.empty:
+                                time_ip = df_ip["Time"].to_numpy()
+                                data_ip = df_ip[ip_name.upper() if ip_name.upper() in df_ip.columns else df_ip.columns[1]].to_numpy() # Handle col names safely
+                                
+                                # Use default 0.05 (5%) and 0.05 (5%) thresholds
+                                dur, s_idx, e_idx, s_time, e_time = cal_duration(data_ip, time_ip, start_threshold_ratio=0.05, end_threshold_ratio=0.05)
+                                shot_durations[shot] = {
+                                    "duration": dur,
+                                    "start_time": s_time,
+                                    "end_time": e_time
+                                }
+                                loaded = True
+                                break
+                        except Exception:
+                            pass
         
         fig = make_subplots(
             rows=subplot_rows,
@@ -239,6 +297,32 @@ else:
                         mode="lines",
                         line=dict(color=color_map.get(shot, "gray"))
                     ), row=row, col=col)
+                    
+                    # Apply Highlight if ON
+                    if highlight_interval and shot in shot_durations:
+                        dur_info = shot_durations[shot]
+                        s_time = dur_info["start_time"]
+                        e_time = dur_info["end_time"]
+                        duration_val = dur_info["duration"]
+                        
+                        if s_time is not None and e_time is not None:
+                             fig.add_vrect(
+                                x0=s_time, x1=e_time,
+                                fillcolor=color_map.get(shot, "pink"),
+                                opacity=0.2,
+                                line_width=0,
+                                row=row, col=col
+                            )
+                             # Centered annotation
+                             fig.add_annotation(
+                                x=s_time + (e_time - s_time) / 2,
+                                y=np.max(y_data) * 0.9 if len(y_data) > 0 else 0, 
+                                text=f"{duration_val:.1f} ms",
+                                showarrow=False,
+                                yshift=10,
+                                font=dict(color=color_map.get(shot, "black"), size=10),
+                                row=row, col=col
+                            )
 
                 except Exception as e:
                     # st.error(f"Error loading/processing {filename} for Shot {shot}: {e}")
@@ -265,99 +349,6 @@ else:
             margin=dict(t=80, b=100, l=60, r=60),
             showlegend=True,
             title_text="Signal Dashboard",
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    if st.session_state["calculate_duration_clicked"] and selected_shots and signal_list:
-        st.write("## Duration Analysis")
-        
-        fig = make_subplots(
-            rows=subplot_rows,
-            cols=subplot_cols,
-            shared_xaxes=True,
-            vertical_spacing=0.1,
-            horizontal_spacing=0.15,
-            subplot_titles=[f"Duration for {ylabels.get(sig.upper(), sig)}" for sig in signal_list]
-        )
-
-        for idx, sig in enumerate(signal_list):
-            row = (idx // subplot_cols) + 1
-            col = (idx % subplot_cols) + 1
-            
-            for shot in selected_shots: 
-                filename = f"{sig}.txt"
-                file_path = os.path.join(BASE_PATH, shot)
-                full_path = os.path.join(file_path, filename)
-
-                if not os.path.exists(full_path):
-                    st.warning(f"File not found: {full_path} for Shot {shot}, Signal {sig}")
-                    continue
-
-                try:
-                    df = load_signal(file_path, filename)
-                    df = df[(df["Time"] >= t0) & (df["Time"] <= t1)]
-
-                    time = df["Time"].to_numpy()
-                    data = df[sig.upper()].to_numpy()
-
-                    if "I" in sig.upper():
-                        data = data / 1000
-
-                    duration, start_idx, end_idx = cal_duration(data, time)
-
-                    fig.add_trace(go.Scatter(
-                        x=time,
-                        y=data,
-                        mode="lines",
-                        name=f"{shot} - {sig.upper()}",
-                        line=dict(color=color_map.get(shot, "gray"))
-                    ), row=row, col=col)
-
-                    if start_idx != -1 and end_idx != -1 and start_idx < len(time) and end_idx < len(time):
-                        fig.add_vrect(
-                            x0=time[start_idx], x1=time[end_idx],
-                            fillcolor=color_map.get(shot, "pink"),
-                            opacity=0.2,
-                            line_width=0,
-                            row=row, col=col
-                        )
-                        fig.add_annotation(
-                            x=time[start_idx] + (time[end_idx] - time[start_idx]) / 2,
-                            y=np.max(data) * 0.9,
-                            text=f"{duration:.1f} ms",
-                            showarrow=False,
-                            yshift=10,
-                            font=dict(color=color_map.get(shot, "black"), size=10),
-                            row=row, col=col
-                        )
-
-                except FileNotFoundError:
-                    st.warning(f"File not found: {full_path} for Shot {shot}, Signal {sig}")
-                except Exception as e:
-                    pass
-
-            fig.update_yaxes(
-                title_text=ylabels.get(sig.upper(), " "),
-                row=row,
-                col=col
-            )
-            
-            show_x_label = (row == subplot_rows)
-            x_title = "Time (ms)" if show_x_label else None
-            
-            fig.update_xaxes(
-                title_text=x_title,
-                showticklabels=show_x_label,
-                row=row,
-                col=col
-            )
-            
-        fig.update_layout(
-            height=300 * subplot_rows,
-            margin=dict(t=80, b=100, l=60, r=60),
-            showlegend=True,
-            title_text="Duration Analysis (Threshold > 9.5%)",
             hovermode="x unified"
         )
         st.plotly_chart(fig, use_container_width=True)
