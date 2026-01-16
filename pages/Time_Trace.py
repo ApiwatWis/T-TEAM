@@ -268,11 +268,19 @@ else:
     use_long_names = st.sidebar.toggle("Use Descriptive Signal Names", value=True)
     highlight_interval = st.sidebar.toggle("Highlight Discharge Interval", value=False)
     
+    highlight_ref_signal = "IP2"
+    if highlight_interval:
+        highlight_ref_signal = st.sidebar.radio("Reference Signal for Interval", ["IP2", "IP1"])
+    
     # Check if LaBr3 signals are selected to show the spectrum toggle
     has_labr3_selected = any(s.startswith("LaBr3") for s in signal_list)
     show_hxr_spectrum = False
+    spectrum_scale = "Linear-Linear"
+    
     if has_labr3_selected:
         show_hxr_spectrum = st.sidebar.toggle("Show HXR Spectrum (Whole discharge)", value=False)
+        if show_hxr_spectrum:
+            spectrum_scale = st.sidebar.radio("Spectrum Scale", ["Linear-Linear", "Log-Log"])
     
     t0 = st.sidebar.number_input("Plot Start time (ms)", value=250, key="plot_t0") # Changed default to match typical search
     t1 = st.sidebar.number_input("Plot End time (ms)", value=500, key="plot_t1")
@@ -315,7 +323,7 @@ else:
     # --- Subplot Layout Option  ---
     layout_option = st.sidebar.selectbox(
         "Subplot layout",
-        options=["Grid (Auto)", "Vertical", "Horizontal"]
+        options=["Grid (Auto)", "Vertical"]
     )
 
     # --- Consolidated and Corrected Layout Calculation ---
@@ -326,9 +334,6 @@ else:
         if layout_option == "Vertical":
             subplot_rows = num_plots
             subplot_cols = 1
-        elif layout_option == "Horizontal":
-            subplot_rows = 1
-            subplot_cols = num_plots
         else:  # Grid (Auto)
             subplot_rows = (num_plots + 1) // 2 
             subplot_cols = 2 if num_plots > 1 else 1 
@@ -347,9 +352,14 @@ else:
         # Pre-calculate durations if highlight is ON
         shot_durations = {}
         if highlight_interval:
+            low_ip_shots = []
             for shot in selected_shots:
-                # Load IP2 for duration calculation as requested
-                ip_cols = ["IP2", "IP1", "IP"] 
+                # Load IP for duration calculation based on selection
+                if highlight_ref_signal == "IP2":
+                     ip_cols = ["IP2", "IP1", "IP"]
+                else:
+                     ip_cols = ["IP1", "IP2", "IP"]
+                     
                 loaded = False
                 for ip_name in ip_cols:
                     filename = f"{ip_name}.txt"
@@ -363,14 +373,7 @@ else:
                                 data_ip = df_ip[ip_name.upper() if ip_name.upper() in df_ip.columns else df_ip.columns[1]].to_numpy() # Handle col names safely
                                 
                                 # Check if max current >= 2 kA for highlighting
-                                # Assuming IP is in kA if absolute value > 100, wait, load_signal does not convert to kA by default. 
-                                # But let's check values used in plotting. Plotting divides by 1000 if "I" in sig.
-                                # Here we are using raw data. Let's assume raw data is in Amperes usually.
-                                # Check if column name contains "IP".
                                 max_val = np.max(data_ip)
-                                # If signal is already in kA ? No, load_signal reads raw.
-                                # User requirement: "below than 2 kA". Raw IP usually in Amperes.
-                                # Let's assume 2000 A.
                                 
                                 threshold_amp = 2000
                                 if max_val >= threshold_amp:
@@ -381,23 +384,53 @@ else:
                                         "start_time": s_time,
                                         "end_time": e_time
                                     }
+                                else:
+                                    low_ip_shots.append(shot)
                                 loaded = True
                                 break
                         except Exception:
                             pass
+            
+            if low_ip_shots:
+                st.warning(f"Plasma current (IP) is below 2 kA for shots: {', '.join(low_ip_shots)}. Discharge interval highlighting skipped for these shots.")
         
+        # Calculate dynamic vertical spacing to prevent squeezing
+        # Target gap ~80px between subplots
+        height_per_row = 350
+        total_height = height_per_row * subplot_rows
+        
+        # Plotly vertical_spacing is the fraction of total height distributed BETWEEN subplots.
+        # However, for shared_xaxes=True it sometimes behaves differently. 
+        # Let's use a more direct calculation.
+        vertical_spacing_val = 0.1 # Default
+        if subplot_rows > 1:
+            # We want a gap of roughly 80 pixels
+            # vertical_spacing is the normalized height of ONE gap
+            vertical_spacing_val = 80.0 / total_height
+            
+            # Ensure it doesn't violate Plotly's constraint: spacing < 1/(rows-1)
+            max_spacing = 1.0 / (subplot_rows - 1)
+            if vertical_spacing_val >= max_spacing:
+                vertical_spacing_val = max_spacing * 0.9
+
         fig = make_subplots(
             rows=subplot_rows,
             cols=subplot_cols,
             shared_xaxes=True,
-            vertical_spacing=0.1,
-            horizontal_spacing=0.15,
+            vertical_spacing=vertical_spacing_val,
+            horizontal_spacing=0.1, 
             subplot_titles=[ylabels.get(sig.upper(), sig) for sig in signal_list]
         )
+
+        signals_not_found = []
+        legend_shots_added = set()
 
         for idx, sig in enumerate(signal_list):
             row = (idx // subplot_cols) + 1
             col = (idx % subplot_cols) + 1
+            
+            data_found_for_sig = False
+            missing_shots = []
 
             for shot in selected_shots: 
                 df = pd.DataFrame()
@@ -405,10 +438,7 @@ else:
                 if sig.upper().startswith("LABR3"):
                     df = load_labr3_signal(BASE_PATH, shot, sig)
                     if df.empty:
-                        # Optional: warn if data expected but missing. 
-                        # But for LaBr3, user said it might be absent. 
-                        # Sticking to valid data or warning.
-                        # st.warning(f"No valid data for {sig} in Shot {shot}")
+                        missing_shots.append(shot)
                         pass
                 else:
                     filename = f"{sig}.txt"
@@ -416,28 +446,43 @@ else:
                     full_path = os.path.join(file_path, filename)
 
                     if not os.path.exists(full_path):
-                        st.warning(f"File not found: {full_path} for Shot {shot}, Signal {sig}")
+                        missing_shots.append(shot)
                         continue
 
                     try:
                         df = load_signal(file_path, filename)
+                        if df.empty:
+                             missing_shots.append(shot)
                     except Exception:
                         df = pd.DataFrame()
+                        missing_shots.append(shot)
 
                 try:
                     if df.empty:
                         continue
                         
                     df = df[(df["Time"] >= t0) & (df["Time"] <= t1)] 
+                    if df.empty:
+                        continue
+                    
+                    data_found_for_sig = True
 
                     y_data = df[sig.upper()]
                     if "I" in sig.upper():
                         y_data = y_data / 1000
 
+                    # Optimize Legend: Group by Shot
+                    show_legend = False
+                    if shot not in legend_shots_added:
+                        show_legend = True
+                        legend_shots_added.add(shot)
+
                     fig.add_trace(go.Scatter(
                         x=df["Time"],
                         y=y_data,
-                        name=f"{shot} - {sig.upper()}",
+                        name=f"{shot}", # Consolidated name
+                        legendgroup=f"group_{shot}", # Group by shot
+                        showlegend=show_legend,
                         mode="lines",
                         line=dict(color=color_map.get(shot, "gray"))
                     ), row=row, col=col)
@@ -478,18 +523,28 @@ else:
                 col=col
             )
             
-            show_x_label = (row == subplot_rows)
-            x_title = "Time (ms)" if show_x_label else None
+            show_x_label = True # Label time on all graphs as requested
+            x_title = "Time (ms)"
             
             fig.update_xaxes(
                 title_text=x_title,
                 showticklabels=show_x_label,
+                matches='x',
                 row=row,
                 col=col
             )
             
+            if not data_found_for_sig:
+                signals_not_found.append(sig)
+            elif missing_shots:
+                 # Data found for some shots, but missing for others
+                 st.warning(f"Data not available for **{sig}** in Discharge(s): {', '.join(missing_shots)}")
+            
+        if signals_not_found:
+            st.warning(f"No data available for the following signals across selected shots: {', '.join(signals_not_found)}")
+            
         fig.update_layout(
-            height=300 * subplot_rows,
+            height=height_per_row * subplot_rows,
             margin=dict(t=80, b=100, l=60, r=60),
             showlegend=True,
             title_text="Signal Dashboard",
@@ -503,17 +558,20 @@ else:
             st.write("### HXR Spectrum (Whole Discharge)")
             
             labr3_signals = [s for s in signal_list if s.startswith("LaBr3")]
+            overall_hxr_found = False
             
             # Separate plots for each LaBr3 detector
             # Sort to keep order consistent if typical names used
             for sig in sorted(labr3_signals): 
                  spec_fig = go.Figure()
                  has_data_for_sig = False
+                 export_data = [] # For data download
                  
                  for shot in selected_shots:
                     energies = load_labr3_energy(BASE_PATH, shot, sig)
                     if len(energies) > 0:
                         has_data_for_sig = True
+                        overall_hxr_found = True
                         
                         # Binning: 1 keV bins, centered at integers
                         # Edges should be at k-0.5 and k+0.5 for Integer center k
@@ -537,6 +595,10 @@ else:
                             mask = counts > 0
                             x_plot = bin_centers[mask]
                             y_plot = counts[mask]
+
+                            # Store for export
+                            for ev, cv in zip(x_plot, y_plot):
+                                export_data.append({"Shot": shot, "Energy_keV": ev, "Count": cv})
                             
                             spec_fig.add_trace(go.Scatter(
                                 x=x_plot,
@@ -547,14 +609,39 @@ else:
                             ))
 
                  if has_data_for_sig:
+                    # Determine axis scale properties
+                    xaxis_props = dict(title="Energy (keV)")
+                    yaxis_props = dict(title="Counts")
+                    
+                    if spectrum_scale == "Log-Log":
+                        xaxis_props["type"] = "log"
+                        yaxis_props["type"] = "log"
+                        # For log scale, auto-range usually works better than fixed linear range
+                    else:
+                        xaxis_props["type"] = "linear"
+                        yaxis_props["type"] = "linear"
+                        xaxis_props["range"] = [0, 2000] # Default 0-2000 keV for linear
+
                     spec_fig.update_layout(
                         title=f"HXR Energy Spectrum - {sig}",
-                        xaxis_title="Energy (keV)",
-                        yaxis_title="Counts",
+                        xaxis=xaxis_props,
+                        yaxis=yaxis_props,
                         hovermode="closest",
                         height=400,
-                        xaxis=dict(range=[0, 2000]) # Default 0-2000 keV as typical HXR range
                     )
                     st.plotly_chart(spec_fig, use_container_width=True)
+
+                    # Export data section
+                    df_export = pd.DataFrame(export_data)
+                    csv_string = df_export.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label=f"Download {sig} Spectrum Data",
+                        data=csv_string,
+                        file_name=f"HXR_Spectrum_{sig}.csv",
+                        mime='text/csv',
+                    )
                  else:
                     st.info(f"No HXR energy data available for {sig} in selected shots.")
+
+            if not overall_hxr_found:
+                st.warning("No HXR data found for any selected detectors across chosen discharges.")
