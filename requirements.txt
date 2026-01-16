@@ -1,6 +1,7 @@
-streamlit 
-pandas 
-plotly 
+streamlit
+pandas
+plotly
 numpy
 matplotlib
 opencv-python
+PyYAML

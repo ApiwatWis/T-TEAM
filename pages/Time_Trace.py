@@ -5,6 +5,7 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
+import yaml
 
 # Set page config
 # st.set_page_config(layout="wide") # Commented out as likely handled by Home.py handling
@@ -14,6 +15,17 @@ st.sidebar.title("Signal Dashboard")
 
 # Main path for data files - relative to the workspace
 BASE_PATH = os.path.join(os.getcwd(), "data")
+
+# Load signals metadata
+@st.cache_data
+def load_signals_metadata():
+    metadata_path = os.path.join(os.getcwd(), "signals.yaml")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, 'r') as f:
+            return yaml.safe_load(f)
+    return {}
+
+signals_metadata = load_signals_metadata()
 
 # -----------------------------
 #  load form .txt files
@@ -265,7 +277,7 @@ else:
     st.sidebar.markdown("---")
     st.sidebar.header("Plotting Options")
     
-    use_long_names = st.sidebar.toggle("Use Descriptive Signal Names", value=True)
+    use_long_names = st.sidebar.toggle("Use Descriptive Signal Names", value=False)
     highlight_interval = st.sidebar.toggle("Highlight Discharge Interval", value=False)
     
     highlight_ref_signal = "IP2"
@@ -286,32 +298,24 @@ else:
     t1 = st.sidebar.number_input("Plot End time (ms)", value=500, key="plot_t1")
 
 
-    # --- Automatic Y-axis Labels Dictionary  ---
+    # --- Automatic Y-axis Labels and Subplot Titles from signals.yaml ---
     ylabels = {}
+    st_titles = {}
     for sig in signal_list:
-        sig_upper = sig.upper()
-        if not use_long_names:
-            ylabels[sig] = sig_upper
-        elif sig_upper.startswith("IP"):
-            ylabels[sig] = "Plasma Current (kA)"
-        elif sig_upper.startswith("IV"):
-            ylabels[sig] = "Vertical Current (kA)"
-        elif sig_upper.startswith("G"):
-            ylabels[sig] = f"{sig} (T)"
-        elif sig_upper.startswith("V"):
-            ylabels[sig] = f"{sig} (V)"
-        elif sig_upper.startswith("F"):
-            ylabels[sig] = f"{sig} (Wb)"
-        elif sig_upper.startswith("DIA"):
-            ylabels[sig] = f"{sig} (Wb)"
-        elif sig_upper.startswith("NE"): 
-            ylabels[sig] = f"Electron Density (10^19 m^-3)" 
-        elif sig_upper.startswith("VLOOP"): 
-            ylabels[sig] = f"Loop Voltage (V)" 
-        elif sig_upper.startswith("LABR3"):
-            ylabels[sig] = f"Count Rate (Hz)"
-        else:
-            ylabels[sig] = f"{sig}"
+        meta = signals_metadata.get(sig, {})
+        unit = meta.get('unit', '')
+        short = meta.get('short', sig)
+        long = meta.get('long', sig)
+        
+        # Determine display unit
+        display_unit = unit
+        if "I" in sig.upper() and unit == "A":
+            display_unit = "kA"
+        elif sig.upper().startswith("LABR3"):
+            display_unit = "Hz"
+            
+        ylabels[sig] = f"{sig} ({display_unit})" if display_unit else sig
+        st_titles[sig] = long if use_long_names else short
 
 
     # --- Color Map for Shots ---
@@ -419,7 +423,7 @@ else:
             shared_xaxes=True,
             vertical_spacing=vertical_spacing_val,
             horizontal_spacing=0.1, 
-            subplot_titles=[ylabels.get(sig.upper(), sig) for sig in signal_list]
+            subplot_titles=[st_titles.get(sig, sig) for sig in signal_list]
         )
 
         signals_not_found = []
@@ -517,8 +521,19 @@ else:
                     # st.error(f"Error loading/processing {filename} for Shot {shot}: {e}")
                     pass
 
+            # Add limit line for LaBr3
+            if sig.upper().startswith("LABR3"):
+                fig.add_hline(
+                    y=300000,
+                    line_dash="dash",
+                    line_color="orange",
+                    annotation_text="threshold (300 kHz)",
+                    annotation_position="top right",
+                    row=row, col=col
+                )
+
             fig.update_yaxes(
-                title_text=ylabels.get(sig.upper(), " "),
+                title_text=ylabels.get(sig, " "),
                 row=row,
                 col=col
             )

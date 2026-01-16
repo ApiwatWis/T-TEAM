@@ -1,0 +1,235 @@
+# signals.yaml - Thailand Tokamak-1 Signal Configuration
+
+# --- Poloidal Magnetic Probes (GBP) ---
+GBP1T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP1T)
+GBP1N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP1N)
+GBP2T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP2T)
+GBP2N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP2N)
+GBP3T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP3T)
+GBP3N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP3N)
+GBP4T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP4T)
+GBP4N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP4N)
+GBP5T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP5T)
+GBP5N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP5N)
+GBP6T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP6T)
+GBP6N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP6N)
+GBP7T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP7T)
+GBP7N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP7N)
+GBP8T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP8T)
+GBP8N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP8N)
+GBP9T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP9T)
+GBP9N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP9N)
+GBP10T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP10T)
+GBP10N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP10N)
+GBP11T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP11T)
+GBP11N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP11N)
+GBP12T:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP12T)
+GBP12N:
+  unit: T
+  short: Poloidal B-Field
+  long: Poloidal Magnetic Probe (GBP12N)
+
+# --- Flux Loops (Poloidal Flux) ---
+F0:
+  unit: Wb
+  short: Poloidal Flux
+  long: Flux Loop F0
+F1:
+  unit: Wb
+  short: Poloidal Flux
+  long: Flux Loop F1
+F2:
+  unit: Wb
+  short: Poloidal Flux
+  long: Flux Loop F2
+F3:
+  unit: Wb
+  short: Poloidal Flux
+  long: Flux Loop F3
+F4:
+  unit: Wb
+  short: Poloidal Flux
+  long: Flux Loop F4
+
+# --- Diamagnetic & Compensation Loops ---
+DIACD1A:
+  unit: Wb
+  short: Diamagnetic Flux
+  long: Diamagnetic Loop (DIACD1A)
+DIACD1C:
+  unit: Wb
+  short: Compensation Flux
+  long: Compensation Loop (DIACD1C)
+DIAKL1B:
+  unit: Wb
+  short: Diamagnetic Flux
+  long: Diamagnetic Loop (DIAKL1B)
+DIAKL1C:
+  unit: Wb
+  short: Compensation Flux
+  long: Compensation Loop (DIAKL1C)
+
+# --- Currents ---
+IP1:
+  unit: A
+  short: Plasma Current
+  long: Plasma Current (IP1)
+IP2:
+  unit: A
+  short: Plasma Current
+  long: Plasma Current (IP2)
+IOH1:
+  unit: A
+  short: Ohmic Current
+  long: Ohmic Heating Current (IOH1)
+IOH2:
+  unit: A
+  short: Ohmic Current
+  long: Ohmic Heating Current (IOH2)
+IT1:
+  unit: A
+  short: Toroidal Current
+  long: Toroidal Field Coil Current (IT1)
+IT2:
+  unit: A
+  short: Toroidal Current
+  long: Toroidal Field Coil Current (IT2)
+IV1:
+  unit: A
+  short: Vertical Current
+  long: Vertical Field Coil Current (IV1)
+IV2:
+  unit: A
+  short: Vertical Current
+  long: Vertical Field Coil Current (IV2)
+IF1:
+  unit: A
+  short: Feedback Current
+  long: Feedback Current (IF1)
+IF2:
+  unit: A
+  short: Feedback Current
+  long: Feedback Current (IF2)
+HF_V:
+  unit: A
+  short: Feedback Current
+  long: High Speed Feedback Current
+
+# --- Spectroscopy & Density ---
+HA:
+  unit: V
+  short: H-Alpha
+  long: H-Alpha Spectroscopy
+HCN1:
+  unit: V
+  short: Density (High)
+  long: HCN Interferometer (High Field)
+HCN2:
+  unit: V
+  short: Density (Mid)
+  long: HCN Interferometer (Middle)
+HCN3:
+  unit: V
+  short: Density (Low)
+  long: HCN Interferometer (Low Field)
+GP:
+  unit: V
+  short: Gas Puffing
+  long: Gas Puffing Signal
+
+# --- Loop Voltage (VP) ---
+VP0:
+  unit: V
+  short: Loop Voltage
+  long: Flux Loop Voltage (VP0)
+VP1:
+  unit: V
+  short: Loop Voltage
+  long: Flux Loop Voltage (VP1)
+VP2:
+  unit: V
+  short: Loop Voltage
+  long: Flux Loop Voltage (VP2)
+VP3:
+  unit: V
+  short: Loop Voltage
+  long: Flux Loop Voltage (VP3)
+
+# --- LaBr3 Detectors ---
+LaBr3_1:
+  unit: counts
+  short: LaBr3 Detector 1
+  long: Lanthanum Bromide Scintillation Detector 1
+LaBr3_2:
+  unit: counts
+  short: LaBr3 Detector 2
+  long: Lanthanum Bromide Scintillation Detector 2
