@@ -97,6 +97,34 @@ def load_labr3_signal(base_path, shot_id, detector_name):
         # st.error(f"Error loading LaBr3: {e}")
         return pd.DataFrame()
 
+def load_labr3_energy(base_path, shot_id, detector_name):
+    """
+    Loads LaBr3 energy data (keV) for the whole discharge.
+    """
+    try:
+        filename = f"{detector_name}.CSV"
+        file_path = os.path.join(base_path, shot_id, filename)
+
+        if not os.path.exists(file_path):
+            return np.array([])
+            
+        if os.stat(file_path).st_size < 100:
+             return np.array([])
+
+        df = pd.read_csv(file_path, delimiter=';', header=0)
+        if df.empty or 'ENERGY' not in df.columns:
+            return np.array([])
+
+        q = df['ENERGY'].values
+        # Formula: E = 2.8775*q - 66.0934
+        if len(q) == 0:
+            return np.array([])
+            
+        E = 2.8775 * q - 66.0934
+        return E
+    except Exception:
+        return np.array([])
+
 def get_available_signals(base_path, sample_shot):
     """Retrieves a list of available signal files (TXT) for a given shot."""
     if not sample_shot:
@@ -239,6 +267,12 @@ else:
     
     use_long_names = st.sidebar.toggle("Use Descriptive Signal Names", value=True)
     highlight_interval = st.sidebar.toggle("Highlight Discharge Interval", value=False)
+    
+    # Check if LaBr3 signals are selected to show the spectrum toggle
+    has_labr3_selected = any(s.startswith("LaBr3") for s in signal_list)
+    show_hxr_spectrum = False
+    if has_labr3_selected:
+        show_hxr_spectrum = st.sidebar.toggle("Show HXR Spectrum (Whole discharge)", value=False)
     
     t0 = st.sidebar.number_input("Plot Start time (ms)", value=250, key="plot_t0") # Changed default to match typical search
     t1 = st.sidebar.number_input("Plot End time (ms)", value=500, key="plot_t1")
@@ -462,3 +496,65 @@ else:
             hovermode="x unified"
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # --- HXR Spectrum Plotting ---
+        if has_labr3_selected and show_hxr_spectrum:
+            st.markdown("---")
+            st.write("### HXR Spectrum (Whole Discharge)")
+            
+            labr3_signals = [s for s in signal_list if s.startswith("LaBr3")]
+            
+            # Separate plots for each LaBr3 detector
+            # Sort to keep order consistent if typical names used
+            for sig in sorted(labr3_signals): 
+                 spec_fig = go.Figure()
+                 has_data_for_sig = False
+                 
+                 for shot in selected_shots:
+                    energies = load_labr3_energy(BASE_PATH, shot, sig)
+                    if len(energies) > 0:
+                        has_data_for_sig = True
+                        
+                        # Binning: 1 keV bins, centered at integers
+                        # Edges should be at k-0.5 and k+0.5 for Integer center k
+                        min_e = np.floor(np.min(energies))
+                        # Optional: limit to physical non-negative energy if desired, 
+                        # but formula creates negatives for low channels. 
+                        # Previous code clamped min to 0. Let's keep consistent if intended.
+                        # However, let's just bin what we have, but start binning from floor-0.5
+                        if min_e < 0: min_e = 0 
+                        max_e = np.ceil(np.max(energies))
+                        
+                        if max_e >= min_e:
+                            # Bins edges at 0.5, 1.5, 2.5 etc.
+                            # stop at max_e + 1.5 to ensuring covering max_e with center max_e
+                            bins = np.arange(min_e - 0.5, max_e + 1.5, 1.0)
+                            
+                            counts, bin_edges = np.histogram(energies, bins=bins)
+                            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+                            
+                            # Show only points larger than zero (counts > 0)
+                            mask = counts > 0
+                            x_plot = bin_centers[mask]
+                            y_plot = counts[mask]
+                            
+                            spec_fig.add_trace(go.Scatter(
+                                x=x_plot,
+                                y=y_plot,
+                                mode='markers', # To plot as dots
+                                name=f"{shot}",
+                                marker=dict(color=color_map.get(shot, "gray"), size=4)
+                            ))
+
+                 if has_data_for_sig:
+                    spec_fig.update_layout(
+                        title=f"HXR Energy Spectrum - {sig}",
+                        xaxis_title="Energy (keV)",
+                        yaxis_title="Counts",
+                        hovermode="closest",
+                        height=400,
+                        xaxis=dict(range=[0, 2000]) # Default 0-2000 keV as typical HXR range
+                    )
+                    st.plotly_chart(spec_fig, use_container_width=True)
+                 else:
+                    st.info(f"No HXR energy data available for {sig} in selected shots.")
