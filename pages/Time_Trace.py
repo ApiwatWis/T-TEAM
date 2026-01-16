@@ -34,6 +34,69 @@ def load_signal(path, filename):
         # st.error(f"Error loading {filename}: {e}")
         return pd.DataFrame()
 
+def load_labr3_signal(base_path, shot_id, detector_name):
+    """
+    Loads LaBr3 data and returns a time-series of Count Rate.
+    detector_name: 'LaBr3_1' or 'LaBr3_2'
+    """
+    try:
+        # File is now directly in the shot folder with name "LaBr3_1.CSV" or "LaBr3_2.CSV"
+        filename = f"{detector_name}.CSV"
+        file_path = os.path.join(base_path, shot_id, filename)
+
+        if not os.path.exists(file_path):
+            return pd.DataFrame()
+
+        # Check if file is empty or just header
+        if os.stat(file_path).st_size < 100: # Heuristic for empty file
+             # Try reading to be sure
+             try:
+                 df_test = pd.read_csv(file_path, delimiter=';', nrows=1)
+                 if df_test.empty: return pd.DataFrame()
+             except:
+                 return pd.DataFrame()
+
+        df = pd.read_csv(file_path, delimiter=';', header=0)
+        if df.empty or 'TIMETAG' not in df.columns:
+            return pd.DataFrame()
+
+        timetag_0 = df['TIMETAG'].values
+        
+        # User Constants
+        bit = 2**12
+        ts = 4e-9
+        
+        time_sec = timetag_0 / bit * ts 
+        time_ms = time_sec * 1000.0
+
+        if len(time_ms) == 0:
+            return pd.DataFrame()
+        
+        # Binning for Count Rate (1ms bin)
+        start_t = np.floor(np.min(time_ms))
+        end_t = np.ceil(np.max(time_ms))
+        if end_t <= start_t:
+             # Handle single point or weird range
+             start_t = np.min(time_ms)
+             end_t = np.max(time_ms) + 1.0
+
+        bin_size = 1.0 # ms
+        bins = np.arange(start_t, end_t + bin_size, bin_size)
+        
+        counts, bin_edges = np.histogram(time_ms, bins=bins)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+        
+        rate = counts / (bin_size / 1000.0) # Hz
+        
+        return pd.DataFrame({
+            "Time": bin_centers,
+            detector_name.upper(): rate
+        })
+
+    except Exception as e:
+        # st.error(f"Error loading LaBr3: {e}")
+        return pd.DataFrame()
+
 def get_available_signals(base_path, sample_shot):
     """Retrieves a list of available signal files (TXT) for a given shot."""
     if not sample_shot:
@@ -49,6 +112,13 @@ def get_available_signals(base_path, sample_shot):
     if "IP1" in signals and "Duration" not in signals: # Duration is based on IP1, so only add if IP1 exists
         signals.append("Duration")
     
+    # Check LaBr3 in the shot folder
+    for det in ["LaBr3_1", "LaBr3_2"]:
+       fname = f"{det}.CSV"
+       fpath = os.path.join(shot_path, fname)
+       if os.path.exists(fpath):
+           signals.append(det)
+
     return sorted(signals)
 
 # Function to get all available shots (for search)
@@ -130,7 +200,7 @@ else:
     selected_shots = st.sidebar.multiselect(
         "Select Discharges",
         options=all_available_shots,
-        default=[all_available_shots[0]] if all_available_shots else [],
+        default=[all_available_shots[-1]] if all_available_shots else [],
         key="selected_shots_ms"
     )
 
@@ -143,7 +213,7 @@ else:
         if not signal_choices:
             st.sidebar.warning(f"No signal files found for shot '{sample_shot_for_plotting_signals}'.")
         else:
-            defaults_req = ["IOH1", "IT1", "ITV1", "VP0", "IP1", "HCN1", "HA"]
+            defaults_req = ["IOH1", "IT1", "IV2", "IF2", "VP0", "IP2", "HCN1", "HA", "LaBr3_1", "LaBr3_2"]
             default_signals = [sig for sig in defaults_req if sig in signal_choices]
             if not default_signals and len(signal_choices) >= 2:
                 default_signals = signal_choices[:2]
@@ -165,7 +235,11 @@ else:
 
     # --- Time Range Inputs (for plotting) ---
     st.sidebar.markdown("---")
-    st.sidebar.header("Plotting Time Range")
+    st.sidebar.header("Plotting Options")
+    
+    use_long_names = st.sidebar.toggle("Use Descriptive Signal Names", value=True)
+    highlight_interval = st.sidebar.toggle("Highlight Discharge Interval", value=False)
+    
     t0 = st.sidebar.number_input("Plot Start time (ms)", value=250, key="plot_t0") # Changed default to match typical search
     t1 = st.sidebar.number_input("Plot End time (ms)", value=500, key="plot_t1")
 
@@ -174,7 +248,9 @@ else:
     ylabels = {}
     for sig in signal_list:
         sig_upper = sig.upper()
-        if sig_upper.startswith("IP"):
+        if not use_long_names:
+            ylabels[sig] = sig_upper
+        elif sig_upper.startswith("IP"):
             ylabels[sig] = "Plasma Current (kA)"
         elif sig_upper.startswith("IV"):
             ylabels[sig] = "Vertical Current (kA)"
@@ -190,6 +266,8 @@ else:
             ylabels[sig] = f"Electron Density (10^19 m^-3)" 
         elif sig_upper.startswith("VLOOP"): 
             ylabels[sig] = f"Loop Voltage (V)" 
+        elif sig_upper.startswith("LABR3"):
+            ylabels[sig] = f"Count Rate (Hz)"
         else:
             ylabels[sig] = f"{sig}"
 
@@ -203,7 +281,7 @@ else:
     # --- Subplot Layout Option  ---
     layout_option = st.sidebar.selectbox(
         "Subplot layout",
-        options=["Vertical", "Horizontal", "Grid (Auto)"]
+        options=["Grid (Auto)", "Vertical", "Horizontal"]
     )
 
     # --- Consolidated and Corrected Layout Calculation ---
@@ -224,9 +302,6 @@ else:
     # --- Buttons and Interaction ---
     st.sidebar.markdown("---")
     
-    # Toggle for Highlight
-    highlight_interval = st.sidebar.toggle("Highlight Discharge Interval", value=False)
-    
     if st.sidebar.button("Load and Plot"):
         st.session_state["load_and_plot_clicked"] = True
 
@@ -239,8 +314,8 @@ else:
         shot_durations = {}
         if highlight_interval:
             for shot in selected_shots:
-                # Load IP1 
-                ip_cols = ["IP1", "IP"] 
+                # Load IP2 for duration calculation as requested
+                ip_cols = ["IP2", "IP1", "IP"] 
                 loaded = False
                 for ip_name in ip_cols:
                     filename = f"{ip_name}.txt"
@@ -253,13 +328,25 @@ else:
                                 time_ip = df_ip["Time"].to_numpy()
                                 data_ip = df_ip[ip_name.upper() if ip_name.upper() in df_ip.columns else df_ip.columns[1]].to_numpy() # Handle col names safely
                                 
-                                # Use default 0.05 (5%) and 0.05 (5%) thresholds
-                                dur, s_idx, e_idx, s_time, e_time = cal_duration(data_ip, time_ip, start_threshold_ratio=0.05, end_threshold_ratio=0.05)
-                                shot_durations[shot] = {
-                                    "duration": dur,
-                                    "start_time": s_time,
-                                    "end_time": e_time
-                                }
+                                # Check if max current >= 2 kA for highlighting
+                                # Assuming IP is in kA if absolute value > 100, wait, load_signal does not convert to kA by default. 
+                                # But let's check values used in plotting. Plotting divides by 1000 if "I" in sig.
+                                # Here we are using raw data. Let's assume raw data is in Amperes usually.
+                                # Check if column name contains "IP".
+                                max_val = np.max(data_ip)
+                                # If signal is already in kA ? No, load_signal reads raw.
+                                # User requirement: "below than 2 kA". Raw IP usually in Amperes.
+                                # Let's assume 2000 A.
+                                
+                                threshold_amp = 2000
+                                if max_val >= threshold_amp:
+                                    # Use default 0.05 (5%) and 0.05 (5%) thresholds
+                                    dur, s_idx, e_idx, s_time, e_time = cal_duration(data_ip, time_ip, start_threshold_ratio=0.05, end_threshold_ratio=0.05)
+                                    shot_durations[shot] = {
+                                        "duration": dur,
+                                        "start_time": s_time,
+                                        "end_time": e_time
+                                    }
                                 loaded = True
                                 break
                         except Exception:
@@ -279,16 +366,34 @@ else:
             col = (idx % subplot_cols) + 1
 
             for shot in selected_shots: 
-                filename = f"{sig}.txt"
-                file_path = os.path.join(BASE_PATH, shot)
-                full_path = os.path.join(file_path, filename)
+                df = pd.DataFrame()
+                
+                if sig.upper().startswith("LABR3"):
+                    df = load_labr3_signal(BASE_PATH, shot, sig)
+                    if df.empty:
+                        # Optional: warn if data expected but missing. 
+                        # But for LaBr3, user said it might be absent. 
+                        # Sticking to valid data or warning.
+                        # st.warning(f"No valid data for {sig} in Shot {shot}")
+                        pass
+                else:
+                    filename = f"{sig}.txt"
+                    file_path = os.path.join(BASE_PATH, shot)
+                    full_path = os.path.join(file_path, filename)
 
-                if not os.path.exists(full_path):
-                    st.warning(f"File not found: {full_path} for Shot {shot}, Signal {sig}")
-                    continue
+                    if not os.path.exists(full_path):
+                        st.warning(f"File not found: {full_path} for Shot {shot}, Signal {sig}")
+                        continue
+
+                    try:
+                        df = load_signal(file_path, filename)
+                    except Exception:
+                        df = pd.DataFrame()
 
                 try:
-                    df = load_signal(file_path, filename)
+                    if df.empty:
+                        continue
+                        
                     df = df[(df["Time"] >= t0) & (df["Time"] <= t1)] 
 
                     y_data = df[sig.upper()]
