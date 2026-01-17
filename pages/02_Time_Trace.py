@@ -604,7 +604,7 @@ else:
             title_text="Signal Dashboard",
             hovermode="x unified"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
         # --- HXR Spectrum Plotting ---
         if has_labr3_selected and show_hxr_spectrum:

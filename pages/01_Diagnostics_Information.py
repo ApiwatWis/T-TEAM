@@ -280,7 +280,7 @@ def show_diagnostics_info():
     st.info("Click on the legend items to toggle visibility of components.")
     fig = get_cross_section_plot()
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
     # 3.1 Poloidal Magnetic Probes
     st.subheader("3.1 Poloidal Magnetic Probes (Mirnov Coils)")

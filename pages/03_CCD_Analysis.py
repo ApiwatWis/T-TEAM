@@ -52,6 +52,8 @@ def process_video(input_path, output_path, t0, fps, shot_number):
         fourcc = cv2.VideoWriter_fourcc(*'avc1')
         out = cv2.VideoWriter(output_path, fourcc, playback_fps, (frame_width, frame_height))
         if not out.isOpened():
+             # If avc1 fails, release and raise
+             out.release()
              raise Exception("avc1 failed")
     except:
         # Fallback to mp4v (MPEG-4), might not play in all browsers but works in .mp4 container
