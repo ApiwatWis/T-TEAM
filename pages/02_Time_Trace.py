@@ -8,6 +8,7 @@ import numpy as np
 import yaml
 import utils
 import io
+import zipfile
 
 # Authentication
 if not utils.check_auth():
@@ -146,7 +147,7 @@ def load_labr3_energy(base_path, shot_id, detector_name):
         return np.array([])
 
 def get_available_signals(base_path, sample_shot):
-    """Retrieves a list of available signal files (TXT) for a given shot."""
+    """Retrieves a list of available signal files (TXT or CSV) for a given shot."""
     if not sample_shot:
         return []
     shot_path = os.path.join(base_path, sample_shot)
@@ -155,17 +156,23 @@ def get_available_signals(base_path, sample_shot):
     if not files:
         return []
 
-    signals = [f[:-4] for f in files if f.endswith(".txt")]
+    signals = set()
+    valid_exts = {".txt", ".csv"}
+    # Explicitly ensure no video files are picked up, though they shouldn't match .txt/.csv
     
+    for f in files:
+        name, ext = os.path.splitext(f)
+        if ext.lower() in valid_exts:
+             signals.add(name)
+             
+    signals = list(signals)
  
     if "IP1" in signals and "Duration" not in signals: # Duration is based on IP1, so only add if IP1 exists
         signals.append("Duration")
     
-    # Check LaBr3 in the shot folder
-    for det in ["LaBr3_1", "LaBr3_2"]:
-       fname = f"{det}.CSV"
-       if fname in files:
-           signals.append(det)
+    # Ensure LaBr3 are definitely included if present (redundant if they are .CSV, but keeps logic safe)
+    # The loop above adds 'LaBr3_1' if 'LaBr3_1.CSV' exists. 
+    # Just ensure we aren't doubling up or missing anything.
 
     return sorted(signals)
 
@@ -267,7 +274,7 @@ else:
         if not signal_choices:
             st.sidebar.warning(f"No signal files found for shot '{sample_shot_for_plotting_signals}'.")
         else:
-            defaults_req = ["IOH1", "IT1", "IV2", "IF2", "VP0", "IP2", "HCN1", "HA", "LaBr3_1", "LaBr3_2"]
+            defaults_req = ["IOH1", "IT1", "IV2", "IF2", "VP0", "IP2", "LaBr3_1", "LaBr3_2"]
             default_signals = [sig for sig in defaults_req if sig in signal_choices]
             if not default_signals and len(signal_choices) >= 2:
                 default_signals = signal_choices[:2]
@@ -359,9 +366,22 @@ else:
     # --- Buttons and Interaction ---
     st.sidebar.markdown("---")
     
-    if st.sidebar.button("Load and Plot"):
-        st.session_state["load_and_plot_clicked"] = True
+    # Custom CSS to make the primary button orange
+    st.markdown("""
+    <style>
+    div.stButton > button:first-child {
+        background-color: #ff9f1c; /* Orange */
+        color: white; 
+        border: none;
+    }
+    div.stButton > button:hover {
+        background-color: #e08e1a;
+        color: white;
+    }
+    </style>""", unsafe_allow_html=True)
 
+    if st.sidebar.button("Load and Plot", type="primary"):
+        st.session_state["load_and_plot_clicked"] = True
 
     # --- Plotting Logic ---
     if not st.session_state["load_and_plot_clicked"]:
@@ -393,9 +413,14 @@ else:
     elif st.session_state["load_and_plot_clicked"] and selected_shots and signal_list:
         st.write("### Plotting Signals")
         
+        # Progress Bar Initialization
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
         # Pre-calculate durations if highlight is ON
         shot_durations = {}
         if highlight_interval:
+            status_text.text("Calculating discharge durations...")
             low_ip_shots = []
             for shot in selected_shots:
                 # Load IP for duration calculation based on selection
@@ -471,8 +496,16 @@ else:
 
         signals_not_found = []
         legend_shots_added = set()
+        
+        total_signals = len(signal_list)
 
         for idx, sig in enumerate(signal_list):
+            
+            # Update Status
+            progress = (idx) / total_signals
+            progress_bar.progress(progress)
+            status_text.text(f"Loading signal: {sig} ({idx+1}/{total_signals})...")
+            
             row = (idx // subplot_cols) + 1
             col = (idx % subplot_cols) + 1
             
@@ -593,6 +626,10 @@ else:
             elif missing_shots:
                  # Data found for some shots, but missing for others
                  st.warning(f"Data not available for **{sig}** in Discharge(s): {', '.join(missing_shots)}")
+        
+        # Clear progress
+        progress_bar.empty()
+        status_text.empty()
             
         if signals_not_found:
             st.warning(f"No data available for the following signals across selected shots: {', '.join(signals_not_found)}")
@@ -657,45 +694,76 @@ else:
                             spec_fig.add_trace(go.Scatter(
                                 x=x_plot,
                                 y=y_plot,
-                                mode='markers', # To plot as dots
+                                mode='lines+markers',
                                 name=f"{shot}",
-                                marker=dict(color=color_map.get(shot, "gray"), size=4)
+                                line=dict(color=color_map.get(shot, "gray"))
                             ))
 
                  if has_data_for_sig:
-                    # Determine axis scale properties
-                    xaxis_props = dict(title="Energy (keV)")
-                    yaxis_props = dict(title="Counts")
-                    
-                    if spectrum_scale == "Log-Log":
-                        xaxis_props["type"] = "log"
-                        yaxis_props["type"] = "log"
-                        # For log scale, auto-range usually works better than fixed linear range
-                    else:
-                        xaxis_props["type"] = "linear"
-                        yaxis_props["type"] = "linear"
-                        xaxis_props["range"] = [0, 2000] # Default 0-2000 keV for linear
+                     spec_fig.update_layout(
+                         title=f"HXR Energy Spectrum - {sig}",
+                         xaxis_title="Energy (keV)",
+                         yaxis_title="Counts",
+                         yaxis_type="log" if spectrum_scale == "Log-Log" else "linear",
+                         xaxis_type="log" if spectrum_scale == "Log-Log" else "linear",
+                         height=400
+                     )
+                     
+                     # Set range 1-2000 keV (0-2 MeV)
+                     if spectrum_scale != "Log-Log":
+                         spec_fig.update_xaxes(range=[1, 2000])
+                     else:
+                         # Log scale requires log10 of limits (1 to 2000)
+                         spec_fig.update_xaxes(range=[np.log10(1), np.log10(2000)])
+                         
+                     st.plotly_chart(spec_fig, key=f"hxr_chart_{sig}")
 
-                    spec_fig.update_layout(
-                        title=f"HXR Energy Spectrum - {sig}",
-                        xaxis=xaxis_props,
-                        yaxis=yaxis_props,
-                        hovermode="closest",
-                        height=400,
-                    )
-                    st.plotly_chart(spec_fig, use_container_width=True)
-
-                    # Export data section
-                    df_export = pd.DataFrame(export_data)
-                    csv_string = df_export.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label=f"Download {sig} Spectrum Data",
-                        data=csv_string,
-                        file_name=f"HXR_Spectrum_{sig}.csv",
-                        mime='text/csv',
-                    )
-                 else:
-                    st.info(f"No HXR energy data available for {sig} in selected shots.")
-
+                     # --- Download Buttons for HXR Data ---
+                     if export_data:
+                         st.markdown(f"**Download Processed HXR Data ({sig}):**")
+                         df_all = pd.DataFrame(export_data)
+                         
+                         # Create a row of columns for buttons
+                         # Limit columns to 4 per row for better UI
+                         if len(selected_shots) > 0:
+                            cols = st.columns(min(len(selected_shots), 4))
+                            for i, shot in enumerate(selected_shots):
+                                df_shot = df_all[df_all["Shot"] == shot]
+                                if not df_shot.empty:
+                                    # CSV
+                                    csv = df_shot.to_csv(index=False).encode('utf-8')
+                                    with cols[i % 4]:
+                                        st.download_button(
+                                            label=f"📥 {shot} (.csv)",
+                                            data=csv,
+                                            file_name=f"{sig}_{shot}_spectrum.csv",
+                                            mime='text/csv',
+                                            key=f"dl_hxr_{sig}_{shot}"
+                                        )
+            
             if not overall_hxr_found:
-                st.warning("No HXR data found for any selected detectors across chosen discharges.")
+                 st.info("No LaBr3 energy data found for selected discharges.")
+
+        # --- Download Section ---
+        st.markdown("---")
+        st.subheader("⬇️ Download Discharge Data")
+
+        base_root = utils.get_data_root()
+        
+        # Grid layout for buttons
+        cols_dl = st.columns(3) 
+
+        for i, shot in enumerate(selected_shots):
+            zip_filename = f"{shot}.zip"
+            zip_path = f"{base_root}/{zip_filename}" if base_root else zip_filename
+            
+            # Check existence and get ID
+            file_id = utils.get_id_from_path(zip_path)
+            
+            with cols_dl[i % 3]:
+                if file_id:
+                    # Direct download link for Google Drive file
+                    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+                    st.link_button(f"Download {shot}.zip", url)
+                else:
+                    st.warning(f"Zip not found: {shot}")
