@@ -20,15 +20,34 @@ Select a module from the sidebar to begin analysis.
 if "current_shot" not in st.session_state:
     st.session_state["current_shot"] = "1001"
 
+import utils
+
 # --- SHOT SELECTION ---
 st.sidebar.header("Global Settings")
 # listing files to find available shots
-available_files = [f for f in os.listdir("data") if f.endswith('.txt')]
-available_shots = [f.split('_')[1].split('.')[0] for f in available_files]
+# Try to finding shot folders in repo (root or data/)
+available_shots = []
+# 1. Try root
+dirs_root = utils.list_github_dirs("")
+# Filter for numeric folders (shots)
+shots_root = [d for d in dirs_root if d.isdigit()]
+
+if shots_root:
+    available_shots = shots_root
+else:
+    # 2. Try 'data' folder
+    dirs_data = utils.list_github_dirs("data")
+    available_shots = [d for d in dirs_data if d.isdigit()]
+
+# Sort shots
+available_shots = sorted(available_shots, key=lambda x: int(x), reverse=True)
+
+if not available_shots:
+    available_shots = ["1001"] # fallback
 
 selected_shot = st.selectbox(
     "Select Discharge (Shot #):", 
-    options=available_shots if available_shots else ["1001"]
+    options=available_shots
 )
 
 # Update the session state

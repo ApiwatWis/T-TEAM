@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import yaml
+import utils
+import io
 
 # Set page config
 # st.set_page_config(layout="wide") # Commented out as likely handled by Home.py handling
@@ -14,7 +16,7 @@ st.title("Time Trace Analysis")
 st.sidebar.title("Signal Dashboard")
 
 # Main path for data files - relative to the workspace
-BASE_PATH = os.path.join(os.getcwd(), "data")
+BASE_PATH = utils.get_data_root()
 
 # Load signals metadata
 @st.cache_data
@@ -33,9 +35,14 @@ def load_signal(path, filename):
     """Loads signal data from a .txt file."""
     # Ensure filename is just the signal name (e.g., "IP1") and not "IP1.txt"
     signal_name = filename.replace(".txt", "") 
+    full_path = os.path.join(path, filename)
     try:
+        content = utils.read_github_file(full_path)
+        if not content:
+            return pd.DataFrame()
+            
         data = pd.read_csv(
-            os.path.join(path, filename),
+            io.StringIO(content),
             skiprows=8,
             delimiter=r'\s+',
             header=None,
@@ -56,19 +63,15 @@ def load_labr3_signal(base_path, shot_id, detector_name):
         filename = f"{detector_name}.CSV"
         file_path = os.path.join(base_path, shot_id, filename)
 
-        if not os.path.exists(file_path):
+        content = utils.read_github_file(file_path)
+        if not content:
             return pd.DataFrame()
 
-        # Check if file is empty or just header
-        if os.stat(file_path).st_size < 100: # Heuristic for empty file
-             # Try reading to be sure
-             try:
-                 df_test = pd.read_csv(file_path, delimiter=';', nrows=1)
-                 if df_test.empty: return pd.DataFrame()
-             except:
-                 return pd.DataFrame()
+        # Check if file is small (heuristic)
+        if len(content) < 100: 
+             return pd.DataFrame()
 
-        df = pd.read_csv(file_path, delimiter=';', header=0)
+        df = pd.read_csv(io.StringIO(content), delimiter=';', header=0)
         if df.empty or 'TIMETAG' not in df.columns:
             return pd.DataFrame()
 
@@ -117,13 +120,14 @@ def load_labr3_energy(base_path, shot_id, detector_name):
         filename = f"{detector_name}.CSV"
         file_path = os.path.join(base_path, shot_id, filename)
 
-        if not os.path.exists(file_path):
+        content = utils.read_github_file(file_path)
+        if not content:
             return np.array([])
             
-        if os.stat(file_path).st_size < 100:
+        if len(content) < 100:
              return np.array([])
 
-        df = pd.read_csv(file_path, delimiter=';', header=0)
+        df = pd.read_csv(io.StringIO(content), delimiter=';', header=0)
         if df.empty or 'ENERGY' not in df.columns:
             return np.array([])
 
@@ -142,10 +146,11 @@ def get_available_signals(base_path, sample_shot):
     if not sample_shot:
         return []
     shot_path = os.path.join(base_path, sample_shot)
-    if not os.path.isdir(shot_path):
+    
+    files = utils.list_github_files(shot_path)
+    if not files:
         return []
 
-    files = os.listdir(shot_path)
     signals = [f[:-4] for f in files if f.endswith(".txt")]
     
  
@@ -155,8 +160,7 @@ def get_available_signals(base_path, sample_shot):
     # Check LaBr3 in the shot folder
     for det in ["LaBr3_1", "LaBr3_2"]:
        fname = f"{det}.CSV"
-       fpath = os.path.join(shot_path, fname)
-       if os.path.exists(fpath):
+       if fname in files:
            signals.append(det)
 
     return sorted(signals)
@@ -165,15 +169,14 @@ def get_available_signals(base_path, sample_shot):
 @st.cache_data # Cache this function as it lists directories
 def get_all_available_shots(base_path):
     """Retrieves a list of all available shot directories."""
-    if not os.path.isdir(base_path):
-        return []
+    shots = utils.list_github_dirs(base_path)
     
-    shots = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))]
     # Try to sort numerically if possible, otherwise alphabetically
     try:
         return sorted(shots, key=lambda x: int(x) if x.isdigit() else x)
     except:
         return sorted(shots)
+
 
 
 # --- Duration Calculation Function 
@@ -394,32 +397,35 @@ else:
                 for ip_name in ip_cols:
                     filename = f"{ip_name}.txt"
                     file_path = os.path.join(BASE_PATH, shot)
-                    if os.path.exists(os.path.join(file_path, filename)):
-                        try:
-                            df_ip = load_signal(file_path, filename)
-                            df_ip = df_ip[(df_ip["Time"] >= t0) & (df_ip["Time"] <= t1)]
-                            if not df_ip.empty:
-                                time_ip = df_ip["Time"].to_numpy()
-                                data_ip = df_ip[ip_name.upper() if ip_name.upper() in df_ip.columns else df_ip.columns[1]].to_numpy() # Handle col names safely
-                                
-                                # Check if max current >= 2 kA for highlighting
-                                max_val = np.max(data_ip)
-                                
-                                threshold_amp = 2000
-                                if max_val >= threshold_amp:
-                                    # Use default 0.05 (5%) and 0.05 (5%) thresholds
-                                    dur, s_idx, e_idx, s_time, e_time = cal_duration(data_ip, time_ip, start_threshold_ratio=0.05, end_threshold_ratio=0.05)
-                                    shot_durations[shot] = {
-                                        "duration": dur,
-                                        "start_time": s_time,
-                                        "end_time": e_time
-                                    }
-                                else:
-                                    low_ip_shots.append(shot)
-                                loaded = True
-                                break
-                        except Exception:
-                            pass
+                    # if os.path.exists(os.path.join(file_path, filename)): 
+                    try:
+                        df_ip = load_signal(file_path, filename)
+                        if df_ip.empty:
+                            continue
+                            
+                        df_ip = df_ip[(df_ip["Time"] >= t0) & (df_ip["Time"] <= t1)]
+                        if not df_ip.empty:
+                            time_ip = df_ip["Time"].to_numpy()
+                            data_ip = df_ip[ip_name.upper() if ip_name.upper() in df_ip.columns else df_ip.columns[1]].to_numpy() # Handle col names safely
+                            
+                            # Check if max current >= 2 kA for highlighting
+                            max_val = np.max(data_ip)
+                            
+                            threshold_amp = 2000
+                            if max_val >= threshold_amp:
+                                # Use default 0.05 (5%) and 0.05 (5%) thresholds
+                                dur, s_idx, e_idx, s_time, e_time = cal_duration(data_ip, time_ip, start_threshold_ratio=0.05, end_threshold_ratio=0.05)
+                                shot_durations[shot] = {
+                                    "duration": dur,
+                                    "start_time": s_time,
+                                    "end_time": e_time
+                                }
+                            else:
+                                low_ip_shots.append(shot)
+                            loaded = True
+                            break
+                    except Exception:
+                        pass
             
             if low_ip_shots:
                 st.warning(f"Plasma current (IP) is below 2 kA for shots: {', '.join(low_ip_shots)}. Discharge interval highlighting skipped for these shots.")
@@ -473,17 +479,13 @@ else:
                 else:
                     filename = f"{sig}.txt"
                     file_path = os.path.join(BASE_PATH, shot)
-                    full_path = os.path.join(file_path, filename)
-
-                    if not os.path.exists(full_path):
-                        missing_shots.append(shot)
-                        continue
-
+                    
                     try:
                         df = load_signal(file_path, filename)
                         if df.empty:
                              missing_shots.append(shot)
                     except Exception:
+
                         df = pd.DataFrame()
                         missing_shots.append(shot)
 

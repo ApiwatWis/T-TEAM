@@ -2,22 +2,23 @@ import streamlit as st
 import cv2
 import os
 import numpy as np
+import utils
+import tempfile
 
 st.title("CCD Movie Analysis")
 
-# Main path for data files - relative to the workspace
-BASE_PATH = os.path.join(os.getcwd(), "data")
+# Main path for data files - relative to the repo root
+BASE_PATH = utils.get_data_root()
 
 # Function to get all available shots
 @st.cache_data
 def get_all_available_shots(base_path):
-    if not os.path.isdir(base_path):
-        return []
-    shots = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))]
-    try:
-        return sorted(shots, key=lambda x: int(x) if x.isdigit() else x)
-    except:
-        return sorted(shots)
+    shots = utils.list_github_dirs(base_path)
+    numeric_shots = [s for s in shots if s.isdigit()]
+    if numeric_shots:
+         return sorted(numeric_shots, key=lambda x: int(x), reverse=True)
+    return sorted(shots)
+
 
 def Convert_frame_to_time_label(frame_index, fps, t0, shot_number):
     """
@@ -106,45 +107,59 @@ else:
     with col2:
         fps = st.number_input("Frame Rate (FPS)", value=2000.0, step=100.0)
 
-    # Paths
+    # Define Paths
     shot_dir = os.path.join(BASE_PATH, selected_shot)
     input_filename = f"{selected_shot}.avi"
-    input_path = os.path.join(shot_dir, input_filename)
+    input_path_repo = os.path.join(shot_dir, input_filename)
+                   
     output_filename = f"{selected_shot}_time_label.mp4"
-    output_path = os.path.join(shot_dir, output_filename)
+    
+    # Use Temp Directory for Processing
+    if "temp_dir" not in st.session_state:
+        st.session_state.temp_dir = tempfile.TemporaryDirectory()
+    
+    # Use the persistent temp directory name
+    temp_dir = st.session_state.temp_dir.name
+    local_input_path = os.path.join(temp_dir, input_filename)
+    local_output_path = os.path.join(temp_dir, output_filename)
 
     st.markdown("---")
 
-    # Check for processed video first
-    if os.path.exists(output_path):
-        st.success(f"Processed video found: `{output_filename}`")
-        
-        # Display video player
-        st.video(output_path)
-            
-        with open(output_path, "rb") as file:
-            st.download_button(
-                label="Download Processed Video",
-                data=file,
-                file_name=output_filename,
-                mime="video/mp4"
-            )
+    # Check for processed video in temp storage
+    if os.path.exists(local_output_path):
+        st.success(f"Processed video available: `{output_filename}`")
+        st.video(local_output_path)
+        with open(local_output_path, "rb") as file:
+            st.download_button("Download Processed Video", file, file_name=output_filename, mime="video/mp4")
         st.markdown("---")
 
-    # Check for input video and generation options
-    if os.path.exists(input_path):
+    # Check existence on GitHub
+    input_exists = utils.github_file_exists(input_path_repo)
+
+    if input_exists:
         st.write(f"Original video source: `{input_filename}`")
-        st.info("Note: The video format is .avi. Visual preview might not be supported in this browser.")
+        st.info("Note: Video will be downloaded from GitHub for processing.")
         
-        button_label = "Regenerate Video with Timestamp" if os.path.exists(output_path) else "Generate Video with Timestamp"
+        btn_label = "Regenerate Video" if os.path.exists(local_output_path) else "Generate Video"
         
-        if st.button(button_label):
+        if st.button(btn_label):
+            # Download first
+            # Check if file needs to be downloaded (if not already there or to overwrite)
+            if not os.path.exists(local_input_path):
+                 with st.spinner("Downloading video from GitHub..."):
+                     data = utils.read_github_file_binary(input_path_repo)
+                     if data:
+                         with open(local_input_path, "wb") as f: f.write(data)
+                     else:
+                         st.error("Download failed to local storage.")
+                         st.stop()
+            
             with st.spinner("Processing video..."):
-                success, msg = process_video(input_path, output_path, t0, fps, selected_shot)
+                success, msg = process_video(local_input_path, local_output_path, t0, fps, selected_shot)
                 if success:
-                    st.success(f"Video processed successfully! Saved to: `{output_path}`")
-                    st.rerun() # Rerun to show the new video immediately
+                    st.success("Video processed successfully!")
+                    st.rerun()
                 else:
                     st.error(f"Error: {msg}")
     else:
-        st.warning(f"No original movie file (.avi) found for discharge {selected_shot}. Expected path: `{input_path}`")
+        st.warning(f"No video file found for {selected_shot} in repository.")

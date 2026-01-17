@@ -6,4 +6,4 @@ matplotlib
 opencv-python
 PyYAML
 watchdog
-tabulate
+tabulaterequests
