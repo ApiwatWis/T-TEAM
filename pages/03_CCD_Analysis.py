@@ -5,6 +5,9 @@ import numpy as np
 import utils
 import tempfile
 
+if not utils.check_auth():
+    st.stop()
+
 st.title("CCD Movie Analysis")
 
 # Main path for data files - relative to the repo root

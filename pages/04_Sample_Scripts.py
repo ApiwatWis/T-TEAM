@@ -1,6 +1,10 @@
 import streamlit as st
+import utils
 
 st.set_page_config(page_title="Sample Scripts", layout="wide")
+
+if not utils.check_auth():
+    st.stop()
 
 st.title("📜 Sample Scripts")
 st.write("Below are Python snippets to help you load and process TT-1 data locally.")

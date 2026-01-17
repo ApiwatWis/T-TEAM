@@ -9,6 +9,10 @@ import yaml
 import utils
 import io
 
+# Authentication
+if not utils.check_auth():
+    st.stop()
+
 # Set page config
 # st.set_page_config(layout="wide") # Commented out as likely handled by Home.py handling
 

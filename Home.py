@@ -9,6 +9,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Authentication check
+if not utils.check_auth():
+    st.stop()
+
 # Banner
 st.image("assets/T-TEAM_Banner_03B.png", use_container_width=True)
 

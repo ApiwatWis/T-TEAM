@@ -6,6 +6,50 @@ import os
 import requests
 import io
 
+def check_auth():
+    """
+    Checks if the user is authenticated.
+    Returns True if authenticated, False otherwise.
+    Displays a password input if not authenticated.
+    """
+    if st.session_state.get('password_correct', False):
+        return True
+
+    # Show input
+    st.image("assets/T-TEAM_Banner_03B.png", use_container_width=True)
+    st.header("🔒 Login Required")
+    
+    pwd = st.text_input("Enter Access Password:", type="password")
+    
+    if pwd:
+        # Check against secrets
+        correct_password = None
+        
+        # Check root level
+        if "school_password" in st.secrets:
+            correct_password = st.secrets["school_password"]
+        elif "password" in st.secrets:
+            correct_password = st.secrets["password"]
+            
+        # Check inside [github] block (common if appended to end of secrets.toml)
+        elif "github" in st.secrets:
+            if "school_password" in st.secrets["github"]:
+                correct_password = st.secrets["github"]["school_password"]
+            elif "password" in st.secrets["github"]:
+                 correct_password = st.secrets["github"]["password"]
+
+        if correct_password is None:
+             st.error("Password not configured in secrets.")
+             return False
+
+        if pwd == correct_password:
+            st.session_state['password_correct'] = True
+            st.rerun()
+        else:
+            st.error("❌ Incorrect Password")
+            
+    return False
+
 DATA_FOLDER = "data"
 
 def get_github_session():

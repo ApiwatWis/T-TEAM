@@ -3,6 +3,10 @@ import os
 import yaml
 import numpy as np
 import plotly.graph_objects as go
+import utils
+
+if not utils.check_auth():
+    st.stop()
 
 def get_cross_section_plot():
     # Load signals
