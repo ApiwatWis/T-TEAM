@@ -2,3 +2,4 @@
 venv/
 .DS_Store
 MyLog_Development.txt
+config_TT1.yaml
