@@ -16,7 +16,7 @@ def check_auth():
         return True
 
     # Show input
-    st.image("assets/T-TEAM_Banner_03B.png", use_container_width=True)
+    st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
     st.header("🔒 Login Required")
     
     pwd = st.text_input("Enter Access Password:", type="password")
@@ -189,7 +189,7 @@ def load_timeseries(shot_id):
     """Loads standard time-series data (Ip, Bt, Loop Voltage)"""
     path = os.path.join(DATA_FOLDER, f"shot_{shot_id}.txt")
     if os.path.exists(path):
-        return pd.read_csv(path, sep='\s+', comment='#')
+        return pd.read_csv(path, sep=r'\s+', comment='#')
     return None
 
 @st.cache_data

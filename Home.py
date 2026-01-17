@@ -14,7 +14,7 @@ if not utils.check_auth():
     st.stop()
 
 # Banner
-st.image("assets/T-TEAM_Banner_03B.png", use_container_width=True)
+st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
 
 # Initialize Session State
 if "current_shot" not in st.session_state:

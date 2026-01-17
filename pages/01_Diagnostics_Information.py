@@ -296,7 +296,7 @@ def show_diagnostics_info():
 
     # 3.2 Flux Loops & Voltage
     st.subheader("3.2 Flux Loops & Loop Voltage")
-    st.write("Measure poloidal magnetic flux ($\Psi$) and loop voltage ($V_{loop}$).")
+    st.write(r"Measure poloidal magnetic flux ($\Psi$) and loop voltage ($V_{loop}$).")
     flux_data = {
         "Signal Name": ["`F0`, `F1`, `F2`, `F3`, `F4`", "`VP0`, `VP1`, `VP2`, `VP3`"],
         "Unit": ["Wb", "V"],

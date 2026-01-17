@@ -3,7 +3,7 @@ pandas
 plotly
 numpy
 matplotlib
-opencv-python
+opencv-python-headless
 PyYAML
 watchdog
 tabulate

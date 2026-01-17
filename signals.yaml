@@ -4,11 +4,6 @@
 GBP1T:
   r: 0.9739
   z: -0.01415
-  thetad: 270.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP1T)
@@ -19,11 +14,6 @@ GBP1N:
 GBP2T:
   r: 0.9361
   z: 0.1478
-  thetad: 240.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP2T)
@@ -34,11 +24,6 @@ GBP2N:
 GBP3T:
   r: 0.8223
   z: 0.2691
-  thetad: 210.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP3T)
@@ -49,11 +34,6 @@ GBP3N:
 GBP4T:
   r: 0.6631
   z: 0.3173
-  thetad: 180.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP4T)
@@ -64,11 +44,6 @@ GBP4N:
 GBP5T:
   r: 0.5012
   z: 0.2794
-  thetad: 150.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP5T)
@@ -79,11 +54,6 @@ GBP5N:
 GBP6T:
   r: 0.3799
   z: 0.1657
-  thetad: 120.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP6T)
@@ -94,11 +64,6 @@ GBP6N:
 GBP7T:
   r: 0.3317
   z: 0.006487
-  thetad: 90.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP7T)
@@ -109,11 +74,6 @@ GBP7N:
 GBP8T:
   r: 0.3695
   z: -0.1555
-  thetad: 60.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP8T)
@@ -124,11 +84,6 @@ GBP8N:
 GBP9T:
   r: 0.4883
   z: -0.2768
-  thetad: 30.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP9T)
@@ -139,11 +94,6 @@ GBP9N:
 GBP10T:
   r: 0.6425
   z: -0.325
-  thetad: 0.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP10T)
@@ -154,11 +104,6 @@ GBP10N:
 GBP11T:
   r: 0.8076
   z: -0.2854
-  thetad: 330.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP11T)
@@ -169,11 +114,6 @@ GBP11N:
 GBP12T:
   r: 0.9258
   z: -0.1733
-  thetad: 300.0
-  phid: 0.0
-  area: 1296E-6
-  length: 20E-3
-  turns: 534
   unit: T
   short: Poloidal B-Field
   long: Poloidal Magnetic Probe (GBP12T)
@@ -186,76 +126,48 @@ GBP12N:
 F0:
   r: 0.3616
   z: -0.044
-  NN_mesh: 20
-  area: -1.0
   unit: Wb
   short: Poloidal Flux
   long: Flux Loop F0
 F1:
   r: 0.8571
   z: 0.2037
-  NN_mesh: 20
-  area: -1.0
   unit: Wb
   short: Poloidal Flux
   long: Flux Loop F1
 F2:
   r: 0.446
   z: 0.2048
-  NN_mesh: 20
-  area: -1.0
   unit: Wb
   short: Poloidal Flux
   long: Flux Loop F2
 F3:
   r: 0.4475
   z: -0.2064
-  NN_mesh: 20
-  area: -1.0
   unit: Wb
   short: Poloidal Flux
   long: Flux Loop F3
 F4:
   r: 0.8543
   z: -0.2065
-  NN_mesh: 20
-  area: -1.0
   unit: Wb
   short: Poloidal Flux
   long: Flux Loop F4
 
 # --- Diamagnetic & Compensation Loops ---
 DIACD1A:
-  phid_loop: 11.25
-  a_loop: 0.275
-  NN_mesh: 20
   unit: Wb
   short: Diamagnetic Flux
   long: Diamagnetic Loop (DIACD1A)
 DIACD1C:
-  phid_loop: 11.25
-  a_loop_inner: 0.275
-  a_loop_outer: 0.286
-  z_gap_inner: 0.005
-  z_gap_outer: 0.005
-  NN_mesh: 20
   unit: Wb
   short: Compensation Flux
   long: Compensation Loop (DIACD1C)
 DIAKL1B:
-  phid_loop: 191.25
-  a_loop: 0.275
-  NN_mesh: 20
   unit: Wb
   short: Diamagnetic Flux
   long: Diamagnetic Loop (DIAKL1B)
 DIAKL1C:
-  phid_loop: 191.25
-  a_loop_inner: 0.275
-  a_loop_outer: 0.286
-  z_gap_inner: 0.005
-  z_gap_outer: 0.005
-  NN_mesh: 20
   unit: Wb
   short: Compensation Flux
   long: Compensation Loop (DIAKL1C)
@@ -275,55 +187,32 @@ IOH1:
   unit: A
   short: Ohmic Current
   long: Ohmic Heating Current (IOH1)
-  parameters:
-    R_coil: 0.12    # Resistance (Ohm)
-    L_coil: 0.05    # Inductance (H)
-    turns: 120      # Number of Turns
 
 IOH2:
   unit: A
   short: Ohmic Current
   long: Ohmic Heating Current (IOH2)
-  parameters:
-    R_coil: 0.12    # Resistance (Ohm)
-    L_coil: 0.05    # Inductance (H)
-    turns: 120      # Number of Turns
 
 IT1:
   unit: A
   short: Toroidal Current
   long: Toroidal Field Coil Current (IT1)
-  parameters:
-    R_coil: 0.045   # Resistance (Ohm)
-    L_coil: 0.015   # Inductance (H)
-    turns: 16       # Number of Turns (Total TF assembly)
 
 IT2:
   unit: A
   short: Toroidal Current
   long: Toroidal Field Coil Current (IT2)
-  parameters:
-    R_coil: 0.045   # Resistance (Ohm)
-    L_coil: 0.015   # Inductance (H)
-    turns: 16       # Number of Turns
 
 IV1:
   unit: A
   short: Vertical Current
   long: Vertical Field Coil Current (IV1)
-  parameters:
-    R_coil: 0.08    # Resistance (Ohm)
-    L_coil: 0.004   # Inductance (H)
-    turns: 24       # Number of Turns
 
 IV2:
   unit: A
   short: Vertical Current
   long: Vertical Field Coil Current (IV2)
-  parameters:
-    R_coil: 0.08    # Resistance (Ohm)
-    L_coil: 0.004   # Inductance (H)
-    turns: 24       # Number of Turns
+
 IF1:
   unit: A
   short: Feedback Current
@@ -387,32 +276,24 @@ GP:
 VP0:
   r: 0.3616
   z: -0.044
-  NN_mesh: 20
-  area: -1.0
   unit: V
   short: Loop Voltage
   long: Flux Loop Voltage (VP0)
 VP1:
   r: 0.8571
   z: 0.2037
-  NN_mesh: 20
-  area: -1.0
   unit: V
   short: Loop Voltage
   long: Flux Loop Voltage (VP1)
 VP2:
   r: 0.446
   z: 0.2048
-  NN_mesh: 20
-  area: -1.0
   unit: V
   short: Loop Voltage
   long: Flux Loop Voltage (VP2)
 VP3:
   r: 0.4475
   z: -0.2064
-  NN_mesh: 20
-  area: -1.0
   unit: V
   short: Loop Voltage
   long: Flux Loop Voltage (VP3)
