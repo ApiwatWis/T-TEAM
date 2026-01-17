@@ -240,10 +240,17 @@ else:
         st.session_state["selected_signals_ms"] = []
         st.rerun()
 
+    # Determine default selection from session state
+    default_selection = []
+    if "current_shot" in st.session_state and st.session_state["current_shot"] in all_available_shots:
+        default_selection = [st.session_state["current_shot"]]
+    elif all_available_shots:
+        default_selection = [all_available_shots[-1]]
+
     selected_shots = st.sidebar.multiselect(
         "Select Discharges",
         options=all_available_shots,
-        default=[all_available_shots[-1]] if all_available_shots else [],
+        default=default_selection,
         key="selected_shots_ms"
     )
 

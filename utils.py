@@ -165,3 +165,15 @@ def get_video_path(shot_id):
     if os.path.exists(path):
         return path
     return None
+
+def get_github_shot_list():
+    """
+    Returns a sorted list of available shot numbers (as strings).
+    Checks root or 'data' folder based on where numeric directories are found.
+    """
+    root_loc = get_data_root()
+    dirs = list_github_dirs(root_loc)
+    shots = [d for d in dirs if d.isdigit()]
+    if not shots:
+        return ["1001"]
+    return sorted(shots, key=lambda x: int(x), reverse=True)

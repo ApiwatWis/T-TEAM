@@ -13,6 +13,14 @@ st.markdown("""
 - **Configuration**: Metadata-driven using `signals.yaml`
 """)
 
+st.header("Developer Team")
+st.markdown("""
+- **Assoc. Prof. Dr. Apiwat Wisitsorasak** (apiwat.wis@kmutt.ac.th)
+- **Pornchai Srisuk**
+- **Kitti Rongpuit**
+- **Thailand Tokamak-1 Team**
+""")
+
 st.header("Key Features Implemented")
 with st.expander("Recent Updates (Jan 2026)", expanded=True):
     st.markdown("""
@@ -26,15 +34,15 @@ with st.expander("Recent Updates (Jan 2026)", expanded=True):
 st.header("Environmental Requirements")
 st.code("""
 # Install via terminal:
-pip install streamlit pandas plotly numpy PyYAML opencv-python
+pip install -r requirements.txt
 """, language="bash")
 
 st.header("Roadmap & To-Do")
+st.checkbox("Equilibrium reconstruction", value=False)
+st.checkbox("Plasma displacement determination", value=False)
 st.checkbox("Implement cross-correlation analysis between magnetic probes.", value=False)
-st.checkbox("Add equilibrium reconstruction (EFIT) visualization module.", value=False)
-st.checkbox("Optimize data loading for high-rate HXR files (>1M events).", value=True)
 st.checkbox("Integrate CCD video overlay with Time Trace synchronization.", value=False)
 st.checkbox("Automated shot summary report generation (PDF).", value=False)
 
 st.markdown("---")
-st.caption("THAI TOKAMAK-1 EXPERIMENT ANALYSIS MODULE (T-TEAM) v1.2")
+st.caption("THAI TOKAMAK-1 EXPERIMENT ANALYSIS MODULE (T-TEAM) © 2026 | version 2026.01.19")
