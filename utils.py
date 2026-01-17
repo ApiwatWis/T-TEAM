@@ -1,10 +1,16 @@
-# utils.py
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import numpy as np
 import os
-import requests
 import io
+import time
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+
+# ==========================================
+# Authentication
+# ==========================================
 
 def check_auth():
     """
@@ -16,26 +22,24 @@ def check_auth():
         return True
 
     # Show input
-    st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
+    if os.path.exists("assets/T-TEAM_Banner_03B.png"):
+        st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
     st.header("🔒 Login Required")
     
     pwd = st.text_input("Enter Access Password:", type="password")
     
     if pwd:
-        # Check against secrets
         correct_password = None
-        
         # Check root level
         if "school_password" in st.secrets:
             correct_password = st.secrets["school_password"]
         elif "password" in st.secrets:
-            correct_password = st.secrets["password"]
-            
-        # Check inside [github] block (common if appended to end of secrets.toml)
+            correct_password = st.secrets["password"]  
+        # Check inside [github] block (legacy)
         elif "github" in st.secrets:
-            if "school_password" in st.secrets["github"]:
+             if "school_password" in st.secrets["github"]:
                 correct_password = st.secrets["github"]["school_password"]
-            elif "password" in st.secrets["github"]:
+             elif "password" in st.secrets["github"]:
                  correct_password = st.secrets["github"]["password"]
 
         if correct_password is None:
@@ -50,174 +54,203 @@ def check_auth():
             
     return False
 
-DATA_FOLDER = "data"
+# ==========================================
+# Google Drive Integration
+# ==========================================
 
-def get_github_session():
-    """Returns a requests session with GitHub authentication."""
-    if "github" not in st.secrets:
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+ROOT_FOLDER_NAME = "2601_T-TEAM-Data"
+
+@st.cache_resource
+def get_drive_service():
+    if "gcp_service_account" not in st.secrets:
+        # Fallback to local check? Or just fail silently until used
         return None
-    
-    token = st.secrets["github"]["token"]
-    session = requests.Session()
-    session.headers.update({"Authorization": f"token {token}"})
-    return session
-
-def get_github_repo_info():
-    if "github" not in st.secrets:
-        return None, None, None
-    s = st.secrets["github"]
-    return s["username"], s["repo_name"], s.get("branch", "main")
-
-def list_github_dirs(path=""):
-    """
-    Lists directories in the GitHub repo at the given path.
-    Returns a list of directory names.
-    """
-    username, repo, _ = get_github_repo_info()
-    if not username:
-        # Fallback to local if secrets missing
-        local_path = os.path.join(DATA_FOLDER, path)
-        if os.path.exists(local_path):
-             return [d for d in os.listdir(local_path) if os.path.isdir(os.path.join(local_path, d))]
-        return []
-
-    # API: https://api.github.com/repos/{owner}/{repo}/contents/{path}
-    url = f"https://api.github.com/repos/{username}/{repo}/contents/{path}"
-    session = get_github_session()
     try:
-        response = session.get(url)
-        if response.status_code == 200:
-            items = response.json()
-            # Filter for directories
-            return [item['name'] for item in items if item['type'] == 'dir']
+        service_account_info = st.secrets["gcp_service_account"]
+        creds = service_account.Credentials.from_service_account_info(
+            service_account_info, scopes=SCOPES
+        )
+        return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        print(f"Error listing github dirs: {e}")
-    return []
-
-def list_github_files(path):
-    """Lists files in a GitHub repo directory."""
-    username, repo, _ = get_github_repo_info()
-    if not username:
-        # Fallback local
-        full_path = os.path.join(DATA_FOLDER, path)
-        if os.path.exists(full_path):
-             return os.listdir(full_path)
-        return []
-
-    url = f"https://api.github.com/repos/{username}/{repo}/contents/{path}"
-    session = get_github_session()
-    try:
-        response = session.get(url)
-        if response.status_code == 200:
-            items = response.json()
-            return [item['name'] for item in items if item['type'] == 'file']
-    except:
-        pass
-    return []
-
-def read_github_file(path):
-    """Reads a file from GitHub and returns content as string."""
-    username, repo, branch = get_github_repo_info()
-    if not username:
-        # Fallback local
-        full_path = os.path.join(DATA_FOLDER, path)
-        if os.path.exists(full_path):
-             with open(full_path, 'r', encoding='utf-8', errors='ignore') as f: return f.read()
+        print(f"Failed to create Drive service: {e}")
         return None
 
-    # Raw URL
-    # Note: path should be relative to repo root
-    url = f"https://raw.githubusercontent.com/{username}/{repo}/{branch}/{path}"
-    session = get_github_session()
-    try:
-        response = session.get(url)
-        if response.status_code == 200:
-            return response.text
-    except:
-        pass
+@st.cache_data(ttl=3600)
+def get_root_id():
+    service = get_drive_service()
+    if not service: return None
+    q = f"name = '{ROOT_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    res = service.files().list(q=q, fields="files(id)").execute()
+    files = res.get('files', [])
+    if files:
+        return files[0]['id']
     return None
 
-def read_github_file_binary(path):
-    """Reads a binary file from GitHub and returns bytes."""
-    username, repo, branch = get_github_repo_info()
-    if not username:
-        full_path = os.path.join(DATA_FOLDER, path)
-        if os.path.exists(full_path):
-             with open(full_path, 'rb') as f: return f.read()
+@st.cache_data(ttl=300)
+def get_id_from_path(path):
+    """
+    Resolves a path string (e.g. 'data/1001/IP1.txt') to a Drive File ID.
+    Access starts at 2601_T-TEAM-Data.
+    """
+    root_id = get_root_id()
+    if not root_id: return None
+    
+    if not path or path == "." or path == "/":
+        return root_id
+
+    # Normalize path
+    parts = path.replace('\\', '/').strip('/').split('/')
+    current_id = root_id
+    
+    service = get_drive_service()
+    for part in parts:
+        if not part: continue
+        q = f"'{current_id}' in parents and name = '{part}' and trashed = false"
+        res = service.files().list(q=q, fields="files(id)").execute()
+        files = res.get('files', [])
+        if not files:
+            return None
+        current_id = files[0]['id']
+        
+    return current_id
+
+@st.cache_data(ttl=300)
+def list_dirs(path=""):
+    """Lists directories in the Drive folder at path (relative to root)."""
+    folder_id = get_id_from_path(path)
+    if not folder_id: return []
+
+    service = get_drive_service()
+    q = f"'{folder_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    res = service.files().list(q=q, fields="files(name)").execute()
+    return [f['name'] for f in res.get('files', [])]
+
+@st.cache_data(ttl=300)
+def list_files(path=""):
+    """Lists files (not folders) in the Drive folder at path."""
+    folder_id = get_id_from_path(path)
+    if not folder_id: return []
+
+    service = get_drive_service()
+    q = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+    res = service.files().list(q=q, fields="files(name)").execute()
+    return [f['name'] for f in res.get('files', [])]
+
+@st.cache_data(ttl=600)
+def read_file(path):
+    """Reads a file from Drive and returns content as string."""
+    file_id = get_id_from_path(path)
+    if not file_id: return None
+
+    service = get_drive_service()
+    try:
+        request = service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        return fh.getvalue().decode('utf-8', errors='ignore')
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
         return None
 
-    url = f"https://raw.githubusercontent.com/{username}/{repo}/{branch}/{path}"
-    session = get_github_session()
-    try:
-        response = session.get(url)
-        if response.status_code == 200:
-            return response.content
-    except:
-        pass
-    return None
+@st.cache_data(ttl=600)
+def read_file_binary(path):
+    """Reads a binary file from Drive."""
+    file_id = get_id_from_path(path)
+    if not file_id: return None
 
-def github_file_exists(path):
-    username, repo, _ = get_github_repo_info()
-    if not username:
-         return os.path.exists(os.path.join(DATA_FOLDER, path))
-
-    # Use contents API to check existence
-    url = f"https://api.github.com/repos/{username}/{repo}/contents/{path}"
-    session = get_github_session()
+    service = get_drive_service()
     try:
-        response = session.get(url)
-        return response.status_code == 200
-    except:
-        return False
+        request = service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        return fh.getvalue()
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return None
+
+def file_exists(path):
+    return get_id_from_path(path) is not None
+
+# ==========================================
+# Domain Specific Helpers
+# ==========================================
 
 @st.cache_data
 def get_data_root():
-    """Determines if shots are in root or 'data' folder of the repo."""
-    dirs_root = list_github_dirs("")
-    if any(d.isdigit() for d in dirs_root):
-        return ""
-    
-    dirs_data = list_github_dirs("data")
-    if any(d.isdigit() for d in dirs_data):
-        return "data"
+    """
+    Determines if shots are in root or 'data' folder.
+    Prioritizes 'data' folder if it exists.
+    """
+    try:
+        # Check if 'data' folder exists
+        if file_exists("data"):
+            # If it has numeric folders OR shot files, use it.
+            # Also just default to 'data' if it exists to keep workspace clean
+            return "data"
         
-    return "" # Default to root
+        # Fallback to root if data folder doesn't exist
+        return ""
+    except:
+        pass
+    
+    return "data" # Optimistic default
 
+@st.cache_data
+def get_shot_list():
+    """Returns a sorted list of available shot numbers."""
+    root_loc = get_data_root()
+    dirs = list_dirs(root_loc)
+    shots = [d for d in dirs if d.isdigit()]
+    if not shots:
+        return ["1001"] # Placeholder
+    return sorted(shots, key=lambda x: int(x), reverse=True)
 
 @st.cache_data
 def load_timeseries(shot_id):
-    """Loads standard time-series data (Ip, Bt, Loop Voltage)"""
-    path = os.path.join(DATA_FOLDER, f"shot_{shot_id}.txt")
-    if os.path.exists(path):
-        return pd.read_csv(path, sep=r'\s+', comment='#')
+    """Loads standard time-series data"""
+    root = get_data_root()
+    path = f"{root}/shot_{shot_id}.txt" if root else f"shot_{shot_id}.txt"
+    
+    content = read_file(path)
+    if content:
+         return pd.read_csv(io.StringIO(content), sep=r'\s+', comment='#')
+    
+    # Fallback: maybe inside the shot folder?
+    path_inner = f"{root}/{shot_id}/shot_{shot_id}.txt" if root else f"{shot_id}/shot_{shot_id}.txt"
+    content_inner = read_file(path_inner)
+    if content_inner:
+        return pd.read_csv(io.StringIO(content_inner), sep=r'\s+', comment='#')
+        
     return None
 
 @st.cache_data
 def load_hxr_data(shot_id):
-    """
-    Loads HXR data. 
-    Assumed format: rows = events, columns = [Time, Energy_keV]
-    """
-    path = os.path.join(DATA_FOLDER, f"shot_{shot_id}_hxr.csv")
-    if os.path.exists(path):
-        return pd.read_csv(path)
+    root = get_data_root()
+    path = f"{root}/shot_{shot_id}_hxr.csv"
+    if not root: path = f"shot_{shot_id}_hxr.csv"
+    
+    content = read_file(path)
+    if content:
+        return pd.read_csv(io.StringIO(content))
     return None
 
-def get_video_path(shot_id):
-    """Returns path to video file if it exists"""
-    path = os.path.join(DATA_FOLDER, f"shot_{shot_id}_cam.mp4")
-    if os.path.exists(path):
-        return path
-    return None
+def get_video_bytes(shot_id):
+    root = get_data_root()
+    path = f"{root}/shot_{shot_id}_cam.mp4"
+    if not root: path = f"shot_{shot_id}_cam.mp4"
+    return read_file_binary(path)
 
-def get_github_shot_list():
-    """
-    Returns a sorted list of available shot numbers (as strings).
-    Checks root or 'data' folder based on where numeric directories are found.
-    """
-    root_loc = get_data_root()
-    dirs = list_github_dirs(root_loc)
-    shots = [d for d in dirs if d.isdigit()]
-    if not shots:
-        return ["1001"]
-    return sorted(shots, key=lambda x: int(x), reverse=True)
+# Aliases for compatibility
+read_github_file = read_file
+read_github_file_binary = read_file_binary
+list_github_dirs = list_dirs
+list_github_files = list_files
+get_github_shot_list = get_shot_list
+github_file_exists = file_exists

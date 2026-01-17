@@ -23,12 +23,14 @@ if "current_shot" not in st.session_state:
 # --- Sidebar: Database Logic ---
 st.sidebar.header("Database Status")
 
-# Check query parameters or secrets for GitHub token
-if "github" in st.secrets and "token" in st.secrets["github"]:
-    st.sidebar.success("Connected to T-TEAM Database")
+# Check query parameters or secrets for Google Drive Service Account
+if "gcp_service_account" in st.secrets:
+    st.sidebar.success("Connected to T-TEAM Data Drive")
+else:
+    st.sidebar.warning("Drive Credentials Not Found")
 
 # Get shot list (using the function added to utils)
-available_shots = utils.get_github_shot_list()
+available_shots = utils.get_shot_list()
 
 # Determine default index based on current session state
 try:

@@ -8,3 +8,5 @@ PyYAML
 watchdog
 tabulate
 requests
+google-api-python-client
+google-auth

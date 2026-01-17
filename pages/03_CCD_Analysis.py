@@ -18,9 +18,7 @@ BASE_PATH = utils.get_data_root()
 def get_all_available_shots(base_path):
     shots = utils.list_github_dirs(base_path)
     numeric_shots = [s for s in shots if s.isdigit()]
-    if numeric_shots:
-         return sorted(numeric_shots, key=lambda x: int(x), reverse=True)
-    return sorted(shots)
+    return sorted(numeric_shots, key=lambda x: int(x), reverse=True)
 
 
 def Convert_frame_to_time_label(frame_index, fps, t0, shot_number):
@@ -97,16 +95,21 @@ def process_video(input_path, output_dir, output_base, t0, fps, shot_number):
             break
 
         frame_count += 1
-        label_text = Convert_frame_to_time_label(frame_count - 1, fps=fps, t0=t0, shot_number=shot_number)
-
+        
         # --- Add text to the frame ---
+        time_ms = t0 + ((frame_count - 1) / fps) * 1000
+        
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.8
         font_color = (255, 255, 255)  # White color
         thickness = 2
-        position = (20, 40)
-
-        cv2.putText(frame, label_text, position, font, font_scale, font_color, thickness, cv2.LINE_AA)
+        
+        # Line 1: Thailand Tokamak-1
+        cv2.putText(frame, "Thailand Tokamak-1", (20, 40), font, font_scale, font_color, thickness, cv2.LINE_AA)
+        
+        # Line 2: Time
+        cv2.putText(frame, f"Time: {time_ms:.1f} ms", (20, 80), font, font_scale, font_color, thickness, cv2.LINE_AA)
+        
         out.write(frame)
         
         if total_frames > 0:
