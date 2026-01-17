@@ -350,7 +350,33 @@ else:
 
 
     # --- Plotting Logic ---
-    if st.session_state["load_and_plot_clicked"] and selected_shots and signal_list:
+    if not st.session_state["load_and_plot_clicked"]:
+        st.markdown("## 👋 Welcome to Time Trace Analysis")
+        st.markdown("To start analyzing, please:")
+        st.markdown("1. **Select Discharges** in the sidebar.")
+        st.markdown("2. **Select Signals** you wish to plot.")
+        st.markdown("3. Click **Load and Plot**.")
+        
+        st.divider()
+        st.subheader("📋 Available Diagnostics Signals")
+        
+        # Table of signals
+        table_data = []
+        for sig, meta in signals_metadata.items():
+            if isinstance(meta, dict):
+                 table_data.append({
+                     "Signal Name": f"`{sig}`",
+                     "Unit": meta.get("unit", ""),
+                     "Description": meta.get("long", meta.get("short", ""))
+                 })
+        
+        if table_data:
+            st.markdown(pd.DataFrame(table_data).to_markdown(index=False))
+
+        st.markdown("---")
+        st.info("ℹ️ For detailed technical specifications, please refer to the **Diagnostics Information** page in the sidebar.")
+
+    elif st.session_state["load_and_plot_clicked"] and selected_shots and signal_list:
         st.write("### Plotting Signals")
         
         # Pre-calculate durations if highlight is ON
