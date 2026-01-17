@@ -35,10 +35,10 @@ def Convert_frame_to_time_label(frame_index, fps, t0, shot_number):
         text = f'Shot: Unknown, ' + text_time
     return text
 
-def process_video(input_path, output_path, t0, fps, shot_number):
+def process_video(input_path, output_dir, output_base, t0, fps, shot_number):
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
-        return False, f"Could not open video file '{input_path}'"
+        return False, f"Could not open video file '{input_path}'", None
 
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -47,28 +47,49 @@ def process_video(input_path, output_path, t0, fps, shot_number):
     # FORCE PLAYBACK FPS to 30 to avoid encoding errors with high acquisition FPS (e.g. 2000)
     playback_fps = 30.0 
     
-    # Try avc1 (H.264) first, fallback to mp4v if needed
-    try:
-        fourcc = cv2.VideoWriter_fourcc(*'avc1')
-        out = cv2.VideoWriter(output_path, fourcc, playback_fps, (frame_width, frame_height))
-        if not out.isOpened():
-             # If avc1 fails, release and raise
-             out.release()
-             raise Exception("avc1 failed")
-    except:
-        # Fallback to mp4v (MPEG-4), might not play in all browsers but works in .mp4 container
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, playback_fps, (frame_width, frame_height))
+    # Codec priority list: (FourCC, Extension)
+    codecs = [
+        ('avc1', '.mp4'),  # H.264 (Best for web)
+        ('vp09', '.webm'), # VP9 (Good for web)
+        ('VP80', '.webm'), # VP8 (Good for web)
+        ('mp4v', '.mp4')   # MPEG-4 (Fallback, might not play in all browsers)
+    ]
 
-    if not out.isOpened():
+    out = None
+    final_output_path = None
+
+    for codec, ext in codecs:
+        temp_path = os.path.join(output_dir, output_base + ext)
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            
+            # Attempt to initialize writer
+            test_out = cv2.VideoWriter(temp_path, fourcc, playback_fps, (frame_width, frame_height))
+            if test_out.isOpened():
+                out = test_out
+                final_output_path = temp_path
+                print(f"VideoWriter initialized with codec: {codec}")
+                break
+            else:
+                if os.path.exists(temp_path):
+                    try: os.remove(temp_path)
+                    except: pass
+        except Exception as e:
+            if 'test_out' in locals() and test_out: test_out.release()
+            if os.path.exists(temp_path):
+                try: os.remove(temp_path)
+                except: pass
+            continue
+
+    if not out or not out.isOpened():
         cap.release()
-        return False, "Could not open video writer for output."
+        return False, "Could not open video writer for output (no supported codec found).", None
 
     frame_count = 0
-    progress_bar = st.progress(0)
     
     # Get total frames approx for progress
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    progress_bar = st.progress(0)
     
     while True:
         ret, frame = cap.read()
@@ -89,12 +110,12 @@ def process_video(input_path, output_path, t0, fps, shot_number):
         out.write(frame)
         
         if total_frames > 0:
-            progress_bar.progress(min(frame_count / total_frames, 1.0))
+             progress_bar.progress(min(frame_count / total_frames, 1.0))
 
     cap.release()
     out.release()
     progress_bar.empty()
-    return True, "Success"
+    return True, "Success", final_output_path
 
 # --- Main Page Layout ---
 
@@ -117,7 +138,7 @@ else:
     input_filename = f"{selected_shot}.avi"
     input_path_repo = os.path.join(shot_dir, input_filename)
                    
-    output_filename = f"{selected_shot}_time_label.mp4"
+    output_base = f"{selected_shot}_time_label"
     
     # Use Temp Directory for Processing
     if "temp_dir" not in st.session_state:
@@ -126,16 +147,24 @@ else:
     # Use the persistent temp directory name
     temp_dir = st.session_state.temp_dir.name
     local_input_path = os.path.join(temp_dir, input_filename)
-    local_output_path = os.path.join(temp_dir, output_filename)
+    
+    # Check for existing processed video (mp4 or webm)
+    existing_video = None
+    for ext in ['.mp4', '.webm']:
+        check_path = os.path.join(temp_dir, output_base + ext)
+        if os.path.exists(check_path):
+            existing_video = check_path
+            break
 
     st.markdown("---")
 
     # Check for processed video in temp storage
-    if os.path.exists(local_output_path):
-        st.success(f"Processed video available: `{output_filename}`")
-        st.video(local_output_path)
-        with open(local_output_path, "rb") as file:
-            st.download_button("Download Processed Video", file, file_name=output_filename, mime="video/mp4")
+    if existing_video:
+        file_name = os.path.basename(existing_video)
+        st.success(f"Processed video available: `{file_name}`")
+        st.video(existing_video)
+        with open(existing_video, "rb") as file:
+            st.download_button("Download Processed Video", file, file_name=file_name, mime="video/mp4" if file_name.endswith(".mp4") else "video/webm")
         st.markdown("---")
 
     # Check existence on GitHub
@@ -145,7 +174,7 @@ else:
         st.write(f"Original video source: `{input_filename}`")
         st.info("Note: Video will be downloaded from GitHub for processing.")
         
-        btn_label = "Regenerate Video" if os.path.exists(local_output_path) else "Generate Video"
+        btn_label = "Regenerate Video" if existing_video else "Generate Video"
         
         if st.button(btn_label):
             # Download first
@@ -159,10 +188,16 @@ else:
                          st.error("Download failed to local storage.")
                          st.stop()
             
+            # Cleanup previous outputs before processing to avoid extension conflicts
+            for ext in ['.mp4', '.webm']:
+                prev_file = os.path.join(temp_dir, output_base + ext)
+                if os.path.exists(prev_file):
+                    os.remove(prev_file)
+
             with st.spinner("Processing video..."):
-                success, msg = process_video(local_input_path, local_output_path, t0, fps, selected_shot)
+                success, msg, final_path = process_video(local_input_path, temp_dir, output_base, t0, fps, selected_shot)
                 if success:
-                    st.success("Video processed successfully!")
+                    st.success(f"Video processed successfully! Saved as {os.path.basename(final_path)}")
                     st.rerun()
                 else:
                     st.error(f"Error: {msg}")
