@@ -107,8 +107,11 @@ def process_video(input_path, output_dir, output_base, t0, fps, shot_number):
         # Line 1: Thailand Tokamak-1
         cv2.putText(frame, "Thailand Tokamak-1", (20, 40), font, font_scale, font_color, thickness, cv2.LINE_AA)
         
-        # Line 2: Time
-        cv2.putText(frame, f"Time: {time_ms:.1f} ms", (20, 80), font, font_scale, font_color, thickness, cv2.LINE_AA)
+        # Line 2: Shot Number
+        cv2.putText(frame, f"Shot: {shot_number}", (20, 80), font, font_scale, font_color, thickness, cv2.LINE_AA)
+        
+        # Line 3: Time
+        cv2.putText(frame, f"Time: {time_ms:.1f} ms", (20, 120), font, font_scale, font_color, thickness, cv2.LINE_AA)
         
         out.write(frame)
         
@@ -130,6 +133,7 @@ else:
     selected_shot = st.selectbox("Select Discharge", all_shots)
     
     st.markdown("### Settings")
+    st.markdown("_Note: The following settings are appropriate and should not be changed._")
     col1, col2 = st.columns(2)
     with col1:
         t0 = st.number_input("Start Time (t0) [ms]", value=260.0, step=1.0)
@@ -170,12 +174,13 @@ else:
             st.download_button("Download Processed Video", file, file_name=file_name, mime="video/mp4" if file_name.endswith(".mp4") else "video/webm")
         st.markdown("---")
 
-    # Check existence on GitHub
+    # Check existence on Cloud
     input_exists = utils.github_file_exists(input_path_repo)
 
     if input_exists:
         st.write(f"Original video source: `{input_filename}`")
-        st.info("Note: Video will be downloaded from GitHub for processing.")
+        st.info("Note: The original file cannot be played on the browser and it does not include the time stamp, therefore it is needed to processed. It will take about 2 - 3 minutes. It will be ready to download once the processing complete.")
+        st.info("Note: Video will be downloaded from Cloud for processing.")
         
         btn_label = "Regenerate Video" if existing_video else "Generate Video"
         
@@ -183,7 +188,7 @@ else:
             # Download first
             # Check if file needs to be downloaded (if not already there or to overwrite)
             if not os.path.exists(local_input_path):
-                 with st.spinner("Downloading video from GitHub..."):
+                 with st.spinner("Downloading video from Cloud..."):
                      data = utils.read_github_file_binary(input_path_repo)
                      if data:
                          with open(local_input_path, "wb") as f: f.write(data)
