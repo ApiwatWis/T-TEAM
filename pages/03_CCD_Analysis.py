@@ -177,6 +177,31 @@ else:
     # Check existence on Cloud
     input_exists = utils.github_file_exists(input_path_repo)
 
+    # Check for existing processed video on Cloud
+    cloud_files = utils.list_github_files(shot_dir)
+    cloud_processed_video = None
+    if cloud_files:
+        for f in cloud_files:
+            if "_time_label" in f and any(f.endswith(ext) for ext in ['.mp4', '.webm', '.avi']):
+                cloud_processed_video = f
+                break
+    
+    if cloud_processed_video:
+        st.success(f"Time-stamped video found on Cloud: `{cloud_processed_video}`")
+        st.info("The time-stamped video is ready for viewing.")
+        
+        if not existing_video:
+             if st.button("Load Time-Stamped Video from Cloud"):
+                 with st.spinner("Downloading time-stamped video..."):
+                      cloud_path = os.path.join(shot_dir, cloud_processed_video)
+                      video_data = utils.read_github_file_binary(cloud_path)
+                      if video_data:
+                           save_path = os.path.join(temp_dir, cloud_processed_video)
+                           with open(save_path, "wb") as f: f.write(video_data)
+                           st.rerun()
+                      else:
+                           st.error("Failed to download video from Cloud.")
+
     if input_exists:
         st.write(f"Original video source: `{input_filename}`")
         st.info("Note: The original file cannot be played on the browser and it does not include the time stamp, therefore it is needed to processed. It will take about 2 - 3 minutes. It will be ready to download once the processing complete.")
