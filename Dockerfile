@@ -1,12 +1,12 @@
-# 1. Use a STABLE base image (Debian Bookworm) to prevent future breakage
+# 1. Use a stable, slim Python base image (Debian Bookworm)
+# This prevents the "package not found" errors seen with older images
 FROM python:3.9-slim-bookworm
 
-# 2. Set the working directory
+# 2. Set the working directory inside the container
 WORKDIR /app
 
-# 3. Install system dependencies
-# UPDATED: 'libgl1-mesa-glx' -> 'libgl1'
-# REMOVED: 'software-properties-common' (not needed and caused error)
+# 3. Install system dependencies required by OpenCV and Streamlit
+# libgl1 & libglib2.0-0 are CRITICAL for cv2 to work
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -14,19 +14,21 @@ RUN apt-get update && apt-get install -y \
     libsm6 \
     libxext6 \
     libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Copy requirements
+# 4. Copy the requirements file first (for better caching)
 COPY requirements.txt .
 
-# 5. Install Python libraries
+# 5. Install Python dependencies
+# --no-cache-dir keeps the image small
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy application code
+# 6. Copy the rest of your application code
 COPY . .
 
-# 7. Expose port
+# 7. Expose the port used by Cloud Run
 EXPOSE 8080
 
-# 8. Run command
+# 8. Start Streamlit
 CMD ["streamlit", "run", "Home.py", "--server.port=8080", "--server.address=0.0.0.0"]
