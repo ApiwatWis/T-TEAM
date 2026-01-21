@@ -2,6 +2,9 @@
 # This prevents the "package not found" errors seen with older images
 FROM python:3.9-slim-bookworm
 
+# Set python to unbuffered to see logs in Cloud Run
+ENV PYTHONUNBUFFERED=1
+
 # 2. Set the working directory inside the container
 WORKDIR /app
 
@@ -31,4 +34,5 @@ COPY . .
 EXPOSE 8080
 
 # 8. Start Streamlit
-CMD ["streamlit", "run", "Home.py", "--server.port=8080", "--server.address=0.0.0.0"]
+# Use shell form to allow variable expansion for $PORT
+CMD streamlit run Home.py --server.port=${PORT:-8080} --server.address=0.0.0.0
