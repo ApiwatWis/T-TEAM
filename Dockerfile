@@ -35,4 +35,4 @@ EXPOSE 8080
 
 # 8. Start Streamlit
 # Use shell form to allow variable expansion for $PORT
-CMD streamlit run Home.py --server.port=${PORT:-8080} --server.address=0.0.0.0
+CMD streamlit run Home.py --server.port=${PORT:-8080} --server.address=0.0.0.0 --server.fileWatcherType=none --server.headless=true
