@@ -137,11 +137,17 @@ def load_labr3_energy(base_path, shot_id, detector_name):
             return np.array([])
 
         q = df['ENERGY'].values
-        # Formula: E = 2.8775*q - 66.0934
+        
         if len(q) == 0:
             return np.array([])
             
-        E = 2.8775 * q - 66.0934
+        if detector_name == "LaBr3_2":
+            # Formula: E = 1.85*q - 57.44
+            E = 1.85 * q - 57.44
+        else:
+            # Default / LaBr3_1 Formula: E = 2.8775*q - 66.0934
+            E = 2.8775 * q - 66.0934
+            
         return E
     except Exception:
         return np.array([])
@@ -593,16 +599,16 @@ else:
                     # st.error(f"Error loading/processing {filename} for Shot {shot}: {e}")
                     pass
 
-            # Add limit line for LaBr3
-            if sig.upper().startswith("LABR3"):
-                fig.add_hline(
-                    y=300000,
-                    line_dash="dash",
-                    line_color="orange",
-                    annotation_text="threshold (300 kHz)",
-                    annotation_position="top right",
-                    row=row, col=col
-                )
+            # # Add limit line for LaBr3 ; Removed as per request
+            # if sig.upper().startswith("LABR3"):
+            #     fig.add_hline(
+            #         y=300000,
+            #         line_dash="dash",
+            #         line_color="orange",
+            #         annotation_text="threshold (300 kHz)",
+            #         annotation_position="top right",
+            #         row=row, col=col
+            #     )
 
             fig.update_yaxes(
                 title_text=ylabels.get(sig, " "),
