@@ -34,12 +34,8 @@ COPY . .
 EXPOSE 8080
 
 # 8. Create .streamlit directory and inject secrets at runtime, then start Streamlit
-CMD echo "Starting app..." && \
-    echo "PORT is set to: $PORT" && \
-    mkdir -p /app/.streamlit && \
-    echo "$MY_SECRETS_CONTENT" > /app/.streamlit/secrets.toml && \
-    echo "Secrets file created" && \
-    echo "Starting Streamlit on port $PORT" && \
+CMD mkdir -p /app/.streamlit && \
+    printf '%s' "$MY_SECRETS_CONTENT" > /app/.streamlit/secrets.toml && \
     streamlit run Home.py \
       --server.port=$PORT \
       --server.address=0.0.0.0 \
