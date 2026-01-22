@@ -30,9 +30,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 6. Copy the rest of your application code
 COPY . .
 
-# 7. Expose the port used by Cloud Run
+# 7. Expose the port used by Railway
 EXPOSE 8080
 
-# 8. Start Streamlit
-# Railway sets $PORT dynamically - use shell form to expand variables
-CMD ["sh", "-c", "streamlit run Home.py --server.port=$PORT --server.address=0.0.0.0 --server.fileWatcherType=none --server.headless=true"]
+# 8. Create .streamlit directory and inject secrets at runtime, then start Streamlit
+CMD mkdir -p /app/.streamlit && \
+    echo "$MY_SECRETS_CONTENT" > /app/.streamlit/secrets.toml && \
+    streamlit run Home.py --server.port=$PORT --server.address=0.0.0.0 --server.fileWatcherType=none --server.headless=true
