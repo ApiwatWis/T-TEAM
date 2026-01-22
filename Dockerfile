@@ -34,9 +34,5 @@ COPY . .
 EXPOSE 8080
 
 # 8. Start Streamlit
-# Railway sets $PORT dynamically - use it directly
-CMD streamlit run Home.py \
-    --server.port=$PORT \
-    --server.address=0.0.0.0 \
-    --server.fileWatcherType=none \
-    --server.headless=true
+# Railway sets $PORT dynamically - use shell form to expand variables
+CMD ["sh", "-c", "streamlit run Home.py --server.port=$PORT --server.address=0.0.0.0 --server.fileWatcherType=none --server.headless=true"]
