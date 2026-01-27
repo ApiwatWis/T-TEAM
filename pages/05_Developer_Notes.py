@@ -3,9 +3,6 @@ import utils
 
 st.set_page_config(page_title="Developer Notes", layout="wide")
 
-if not utils.check_auth():
-    st.stop()
-
 st.title("📓 Developer Notes")
 st.write("This page documents implementation details, environmental setup, and the current project roadmap.")
 

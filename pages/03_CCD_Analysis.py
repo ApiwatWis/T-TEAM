@@ -5,16 +5,23 @@ import numpy as np
 import utils
 import tempfile
 
-if not utils.check_auth():
-    st.stop()
-
 st.title("CCD Movie Analysis")
+
+# Display database source
+if "database_type" in st.session_state:
+    db_type = st.session_state["database_type"]
+    if db_type == "Local Files":
+        db_path = st.session_state.get("local_data_path", "Not configured")
+        st.info(f"📂 Database: **{db_type}** | Path: `{db_path}`")
+    else:
+        st.info(f"☁️ Database: **{db_type}**")
+else:
+    st.info("📂 Database: **Default** | Path: `data/`")
 
 # Main path for data files - relative to the repo root
 BASE_PATH = utils.get_data_root()
 
 # Function to get all available shots
-@st.cache_data
 def get_all_available_shots(base_path):
     shots = utils.list_github_dirs(base_path)
     numeric_shots = [s for s in shots if s.isdigit()]

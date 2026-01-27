@@ -5,8 +5,16 @@ import numpy as np
 import plotly.graph_objects as go
 import utils
 
-if not utils.check_auth():
-    st.stop()
+# Display database source
+if "database_type" in st.session_state:
+    db_type = st.session_state["database_type"]
+    if db_type == "Local Files":
+        db_path = st.session_state.get("local_data_path", "Not configured")
+        st.info(f"📂 Database: **{db_type}** | Path: `{db_path}`")
+    else:
+        st.info(f"☁️ Database: **{db_type}**")
+else:
+    st.info("📂 Database: **Default** | Path: `data/`")
 
 def get_cross_section_plot():
     # Load signals

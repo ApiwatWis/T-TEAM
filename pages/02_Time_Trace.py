@@ -10,14 +10,21 @@ import utils
 import io
 import zipfile
 
-# Authentication
-if not utils.check_auth():
-    st.stop()
-
 # Set page config
 # st.set_page_config(layout="wide") # Commented out as likely handled by Home.py handling
 
 st.title("Time Trace Analysis")
+
+# Display database source
+if "database_type" in st.session_state:
+    db_type = st.session_state["database_type"]
+    if db_type == "Local Files":
+        db_path = st.session_state.get("local_data_path", "Not configured")
+        st.info(f"📂 Database: **{db_type}** | Path: `{db_path}`")
+    else:
+        st.info(f"☁️ Database: **{db_type}**")
+else:
+    st.info("📂 Database: **Default** | Path: `data/`")
 st.sidebar.title("Signal Dashboard")
 
 # Main path for data files - relative to the workspace
@@ -64,11 +71,15 @@ def load_labr3_signal(base_path, shot_id, detector_name):
     detector_name: 'LaBr3_1' or 'LaBr3_2'
     """
     try:
-        # File is now directly in the shot folder with name "LaBr3_1.CSV" or "LaBr3_2.CSV"
-        filename = f"{detector_name}.CSV"
-        file_path = os.path.join(base_path, shot_id, filename)
-
-        content = utils.read_github_file(file_path)
+        # Try both .CSV and .csv extensions (case-insensitive)
+        content = None
+        for ext in ['.CSV', '.csv']:
+            filename = f"{detector_name}{ext}"
+            file_path = os.path.join(base_path, shot_id, filename)
+            content = utils.read_github_file(file_path)
+            if content:
+                break
+        
         if not content:
             return pd.DataFrame()
 
@@ -86,19 +97,43 @@ def load_labr3_signal(base_path, shot_id, detector_name):
         bit = 2**12
         ts = 4e-9
         
-        time_sec = timetag_0 / bit * ts 
+        # time_sec = timetag_0 / bit * ts 
+        time_sec = timetag_0 / 250e6 / 1000.0 / 4.0    # second
         time_ms = time_sec * 1000.0
 
         if len(time_ms) == 0:
             return pd.DataFrame()
         
         # Binning for Count Rate (1ms bin)
-        start_t = np.floor(np.min(time_ms))
-        end_t = np.ceil(np.max(time_ms))
+        # Limit to a reasonable time range to avoid creating huge DataFrames
+        # Typical discharge is 0-1000ms, but we'll be generous with 0-2000ms
+        # Only include data points within a reasonable window
+        time_min = np.floor(np.min(time_ms))
+        time_max = np.ceil(np.max(time_ms))
+        
+        # If data spans more than 2000ms, limit to reasonable discharge window
+        # Most plasma discharges are < 1000ms
+        max_duration = 2000.0  # ms
+        
+        if time_max - time_min > max_duration:
+            # Find the region with most data (likely the actual discharge)
+            # Use a sliding window to find the densest region
+            # For simplicity, use the first significant cluster of data
+            hist, edges = np.histogram(time_ms, bins=100)
+            max_bin_idx = np.argmax(hist)
+            center_time = (edges[max_bin_idx] + edges[max_bin_idx + 1]) / 2
+            
+            # Create window around the densest region
+            start_t = max(0, center_time - max_duration/2)
+            end_t = start_t + max_duration
+        else:
+            start_t = np.floor(time_min)
+            end_t = np.ceil(time_max)
+        
         if end_t <= start_t:
              # Handle single point or weird range
-             start_t = np.min(time_ms)
-             end_t = np.max(time_ms) + 1.0
+             start_t = time_min
+             end_t = time_max + 1.0
 
         bin_size = 1.0 # ms
         bins = np.arange(start_t, end_t + bin_size, bin_size)
@@ -114,7 +149,9 @@ def load_labr3_signal(base_path, shot_id, detector_name):
         })
 
     except Exception as e:
-        # st.error(f"Error loading LaBr3: {e}")
+        st.error(f"Error loading LaBr3 {detector_name}: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         return pd.DataFrame()
 
 def load_labr3_energy(base_path, shot_id, detector_name):
@@ -122,15 +159,15 @@ def load_labr3_energy(base_path, shot_id, detector_name):
     Loads LaBr3 energy data (keV) for the whole discharge.
     """
     try:
-        filename = f"{detector_name}.CSV"
-        file_path = os.path.join(base_path, shot_id, filename)
-
-        content = utils.read_github_file(file_path)
-        if not content:
-            return np.array([])
-            
-        if len(content) < 100:
-             return np.array([])
+        # Try both .CSV and .csv extensions (case-insensitive)
+        content = None
+        for ext in ['.CSV', '.csv']:
+            filename = f"{detector_name}{ext}"
+            file_path = os.path.join(base_path, shot_id, filename)
+            content = utils.read_github_file(file_path)
+            if content:
+                break
+        
 
         df = pd.read_csv(io.StringIO(content), delimiter=';', header=0)
         if df.empty or 'ENERGY' not in df.columns:
@@ -149,7 +186,10 @@ def load_labr3_energy(base_path, shot_id, detector_name):
             E = 2.8775 * q - 66.0934
             
         return E
-    except Exception:
+    except Exception as e:
+        st.error(f"Error loading LaBr3 energy {detector_name}: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         return np.array([])
 
 def get_available_signals(base_path, sample_shot):
@@ -163,12 +203,12 @@ def get_available_signals(base_path, sample_shot):
         return []
 
     signals = set()
-    valid_exts = {".txt", ".csv"}
+    valid_exts = {".txt", ".csv", ".CSV", ".TXT"}  # Support both cases
     # Explicitly ensure no video files are picked up, though they shouldn't match .txt/.csv
     
     for f in files:
         name, ext = os.path.splitext(f)
-        if ext.lower() in valid_exts:
+        if ext.lower() in {".txt", ".csv"}:  # Normalize to lowercase for comparison
              signals.add(name)
              
     signals = list(signals)
@@ -183,7 +223,6 @@ def get_available_signals(base_path, sample_shot):
     return sorted(signals)
 
 # Function to get all available shots (for search)
-@st.cache_data # Cache this function as it lists directories
 def get_all_available_shots(base_path):
     """Retrieves a list of all available shot directories."""
     shots = utils.list_github_dirs(base_path)
@@ -280,22 +319,72 @@ else:
         if not signal_choices:
             st.sidebar.warning(f"No signal files found for shot '{sample_shot_for_plotting_signals}'.")
         else:
-            defaults_req = ["IOH1", "IT1", "IV2", "IF2", "VP0", "IP2", "LaBr3_1", "LaBr3_2"]
-            default_signals = [sig for sig in defaults_req if sig in signal_choices]
-            if not default_signals and len(signal_choices) >= 2:
-                default_signals = signal_choices[:2]
+            # Define signal groups
+            signal_groups = {
+                "Default plot": ["IOH1", "IT1", "IV2", "IF2", "VP0", "IP2", "LaBr3_1", "LaBr3_2"],
+                "Loop voltage": ["VP0", "VP1", "VP2", "VP3"],
+                "Poloidal flux loops": ["F0", "F1", "F2", "F3", "F4"],
+                "H-alpha": ["HA"],
+                "HCN interferometer": ["HCN1", "HCN2", "HCN3"],
+                "Tangential Magnetic fields": ["GBP1T", "GBP2T", "GBP3T", "GBP4T", "GBP5T", "GBP6T", 
+                                                "GBP7T", "GBP8T", "GBP9T", "GBP10T", "GBP11T", "GBP12T"],
+                "Normal Magnetic fields": ["GBP1N", "GBP2N", "GBP3N", "GBP4N", "GBP5N", "GBP6N",
+                                           "GBP7N", "GBP8N", "GBP9N", "GBP10N", "GBP11N", "GBP12N"]
+            }
             
-            def set_defaults():
-                st.session_state["selected_signals_ms"] = default_signals
-
+            # Quick selection checkboxes (before multiselect)
+            st.sidebar.markdown("**Quick Selection:**")
+            
+            # Track which checkboxes are selected and detect changes
+            selected_groups = []
+            checkbox_changed = False
+            
+            for group_name, group_signals in signal_groups.items():
+                checkbox_key = f"checkbox_{group_name}"
+                # Store previous state
+                prev_state_key = f"prev_{checkbox_key}"
+                
+                checkbox_value = st.sidebar.checkbox(group_name, key=checkbox_key)
+                
+                # Check if checkbox state changed
+                if prev_state_key in st.session_state:
+                    if st.session_state[prev_state_key] != checkbox_value:
+                        checkbox_changed = True
+                
+                # Update previous state
+                st.session_state[prev_state_key] = checkbox_value
+                
+                if checkbox_value:
+                    selected_groups.append(group_signals)
+            
+            # If checkboxes changed, update the selected signals
+            if checkbox_changed and selected_groups:
+                # Combine all selected groups and filter by available signals
+                combined_signals = []
+                for group in selected_groups:
+                    combined_signals.extend(group)
+                # Remove duplicates and filter by available signals
+                combined_signals = [sig for sig in combined_signals if sig in signal_choices]
+                # Remove duplicates while preserving order
+                combined_signals = list(dict.fromkeys(combined_signals))
+                st.session_state["selected_signals_ms"] = combined_signals
+                st.rerun()
+            
+            # Determine default signals for initial load
+            if "selected_signals_ms" not in st.session_state:
+                defaults_req = signal_groups["Default plot"]
+                default_signals = [sig for sig in defaults_req if sig in signal_choices]
+                if not default_signals and len(signal_choices) >= 2:
+                    default_signals = signal_choices[:2]
+            else:
+                default_signals = st.session_state["selected_signals_ms"]
+            
             signal_list = st.sidebar.multiselect(
                 "Select signal (for plotting)", 
                 signal_choices, 
                 default=default_signals,
                 key="selected_signals_ms"
             )
-            
-            st.sidebar.button("Default plot", on_click=set_defaults)
     else:
         st.sidebar.info("Please select at least one discharge.")
 
@@ -319,7 +408,7 @@ else:
     if has_labr3_selected:
         show_hxr_spectrum = st.sidebar.toggle("Show HXR Spectrum (Whole discharge)", value=False)
         if show_hxr_spectrum:
-            spectrum_scale = st.sidebar.radio("Spectrum Scale", ["Linear-Linear", "Log-Log"])
+            spectrum_scale = st.sidebar.radio("Spectrum Scale", ["Linear-Linear", "Log-Linear", "Log-Log"])
     
     t0 = st.sidebar.number_input("Plot Start time (ms)", value=250, key="plot_t0") # Changed default to match typical search
     t1 = st.sidebar.number_input("Plot End time (ms)", value=500, key="plot_t1")
@@ -339,7 +428,7 @@ else:
         if "I" in sig.upper() and unit == "A":
             display_unit = "kA"
         elif sig.upper().startswith("LABR3"):
-            display_unit = "Hz"
+            display_unit = "cps"  # counts per second
             
         ylabels[sig] = f"{sig} ({display_unit})" if display_unit else sig
         st_titles[sig] = long if use_long_names else short
@@ -657,6 +746,34 @@ else:
             labr3_signals = [s for s in signal_list if s.startswith("LaBr3")]
             overall_hxr_found = False
             
+            # First pass: Collect all spectrum data to find maximum count across all detectors
+            all_counts_by_sig = {}
+            for sig in sorted(labr3_signals):
+                all_counts_by_sig[sig] = []
+                
+                for shot in selected_shots:
+                    energies = load_labr3_energy(BASE_PATH, shot, sig)
+                    if len(energies) > 0:
+                        min_e = 0.0
+                        max_e = 2000.0
+                        
+                        if max_e >= min_e:
+                            bins = np.arange(min_e - 0.5, max_e + 1.5, 1.0)
+                            counts, bin_edges = np.histogram(energies, bins=bins)
+                            all_counts_by_sig[sig].extend(counts)
+            
+            # Calculate global maximum count and round to next power of 10
+            global_max_count = 0
+            for counts_list in all_counts_by_sig.values():
+                if len(counts_list) > 0:
+                    global_max_count = max(global_max_count, np.max(counts_list))
+            
+            # Round to next power of 10
+            if global_max_count > 0:
+                y_axis_max = 10 ** np.ceil(np.log10(global_max_count))
+            else:
+                y_axis_max = 1
+            
             # Separate plots for each LaBr3 detector
             # Sort to keep order consistent if typical names used
             for sig in sorted(labr3_signals): 
@@ -672,13 +789,15 @@ else:
                         
                         # Binning: 1 keV bins, centered at integers
                         # Edges should be at k-0.5 and k+0.5 for Integer center k
-                        min_e = np.floor(np.min(energies))
+                        # min_e = np.floor(np.min(energies))
+                        min_e = 0.0 # Start from 0 keV
                         # Optional: limit to physical non-negative energy if desired, 
                         # but formula creates negatives for low channels. 
                         # Previous code clamped min to 0. Let's keep consistent if intended.
                         # However, let's just bin what we have, but start binning from floor-0.5
                         if min_e < 0: min_e = 0 
-                        max_e = np.ceil(np.max(energies))
+                        # max_e = np.ceil(np.max(energies))
+                        max_e = 2000.0 # Limit to 2000 keV (2 MeV) for practical purposes
                         
                         if max_e >= min_e:
                             # Bins edges at 0.5, 1.5, 2.5 etc.
@@ -710,17 +829,26 @@ else:
                          title=f"HXR Energy Spectrum - {sig}",
                          xaxis_title="Energy (keV)",
                          yaxis_title="Counts",
-                         yaxis_type="log" if spectrum_scale == "Log-Log" else "linear",
+                         yaxis_type="log" if spectrum_scale in ["Log-Log", "Log-Linear"] else "linear",
                          xaxis_type="log" if spectrum_scale == "Log-Log" else "linear",
                          height=400
                      )
                      
                      # Set range 1-2000 keV (0-2 MeV)
-                     if spectrum_scale != "Log-Log":
-                         spec_fig.update_xaxes(range=[1, 2000])
-                     else:
+                     if spectrum_scale == "Log-Log":
                          # Log scale requires log10 of limits (1 to 2000)
                          spec_fig.update_xaxes(range=[np.log10(1), np.log10(2000)])
+                     else:
+                         # Linear x-axis for both Linear-Linear and Log-Linear
+                         spec_fig.update_xaxes(range=[1, 2000])
+                     
+                     # Set y-axis range to global maximum (rounded to power of 10)
+                     if spectrum_scale in ["Log-Log", "Log-Linear"]:
+                         # For log scale, set reasonable range
+                         spec_fig.update_yaxes(range=[0, np.log10(y_axis_max)])
+                     else:
+                         # For linear scale, set to global maximum
+                         spec_fig.update_yaxes(range=[0, y_axis_max])
                          
                      st.plotly_chart(spec_fig, key=f"hxr_chart_{sig}")
 

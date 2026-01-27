@@ -9,10 +9,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Authentication check
-if not utils.check_auth():
-    st.stop()
-
 # Banner
 st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
 
@@ -20,50 +16,88 @@ st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
 if "current_shot" not in st.session_state:
     st.session_state["current_shot"] = "1001"
 
-# --- Sidebar: Database Logic ---
-st.sidebar.header("Database Status")
+# Initialize database settings in session state
+if "database_type" not in st.session_state:
+    st.session_state["database_type"] = "Local Files"
 
-# Check query parameters or secrets for Google Drive Service Account
-if "gcp_service_account" in st.secrets:
-    st.sidebar.success("Connected to T-TEAM Data Drive")
-else:
-    st.sidebar.warning("Drive Credentials Not Found")
+if "local_data_path" not in st.session_state:
+    st.session_state["local_data_path"] = "/Users/apiwat/git/T-TEAM-Data/data/"
 
-# Get shot list (using the function added to utils)
-available_shots = utils.get_shot_list()
+# --- Sidebar: Database Configuration ---
+st.sidebar.header("Database Configuration")
 
-# Determine default index based on current session state
-try:
-    current_index = available_shots.index(st.session_state["current_shot"])
-except ValueError:
-    current_index = 0
-
-def update_session_shots():
-    # Sync the selection with the global current_shot and Time Trace page
-    new_shot = st.session_state["shot_selector_home"]
-    st.session_state["current_shot"] = new_shot
-    # Force Time Trace selection to match this new choice
-    st.session_state["selected_shots_ms"] = [new_shot]
-
-# Selectbox
-st.sidebar.selectbox(
-    "Select Discharge (Shot #):",
-    options=available_shots,
-    index=current_index,
-    key="shot_selector_home",
-    on_change=update_session_shots
+# Database type selection
+database_type = st.sidebar.radio(
+    "Select Database:",
+    options=["Local Files", "Google Drive"],
+    index=0 if st.session_state["database_type"] == "Local Files" else 1,
+    key="db_type_selector"
 )
 
-# Ensure session state is synced on first load or refresh if keys exist
-if "shot_selector_home" in st.session_state:
-    st.session_state["current_shot"] = st.session_state["shot_selector_home"]
+# Update session state
+st.session_state["database_type"] = database_type
 
-# Initialize 'selected_shots_ms' for Time Trace if it doesn't exist
-if "selected_shots_ms" not in st.session_state:
-    st.session_state["selected_shots_ms"] = [st.session_state["current_shot"]]
+# Local files configuration
+if database_type == "Local Files":
+    st.sidebar.subheader("Local Directory")
+    
+    local_path = st.sidebar.text_input(
+        "Data Directory Path:",
+        value=st.session_state["local_data_path"],
+        key="local_path_input"
+    )
+    
+    if local_path != st.session_state["local_data_path"]:
+        st.session_state["local_data_path"] = local_path
+        st.rerun()
+    
+    # Check if path exists
+    import os
+    if os.path.exists(local_path):
+        st.sidebar.success("✓ Directory found")
+        # Count available shots
+        try:
+            shot_folders = [d for d in os.listdir(local_path) if os.path.isdir(os.path.join(local_path, d)) and d.isdigit()]
+            num_shots = len(shot_folders)
+            st.sidebar.info(f"📊 {num_shots} discharge(s) available")
+        except Exception as e:
+            st.sidebar.warning(f"Could not read directory: {e}")
+    else:
+        st.sidebar.error("✗ Directory not found")
 
-# Update variable for local use
-selected_shot = st.session_state["current_shot"]
+# Google Drive configuration
+elif database_type == "Google Drive":
+    st.sidebar.subheader("Google Drive Status")
+    
+    if "gcp_service_account" in st.secrets:
+        st.sidebar.success("✓ Connected to T-TEAM Data Drive")
+        # Get shot list from Google Drive
+        try:
+            available_shots = utils.get_shot_list()
+            num_shots = len([s for s in available_shots if s != "1001"])  # Exclude placeholder
+            st.sidebar.info(f"📊 {num_shots} discharge(s) available")
+        except Exception as e:
+            st.sidebar.warning(f"Could not fetch data: {e}")
+    else:
+        st.sidebar.error("✗ Drive credentials not configured")
+        st.sidebar.caption("Configure credentials in Streamlit secrets")
+
+st.sidebar.divider()
+
+# Database Status Summary
+st.sidebar.header("Database Status")
+if database_type == "Local Files":
+    import os
+    if os.path.exists(st.session_state["local_data_path"]):
+        st.sidebar.success(f"🗂️ Using: Local Files")
+        st.sidebar.caption(f"Path: {st.session_state['local_data_path']}")
+    else:
+        st.sidebar.error("❌ Local path not accessible")
+else:
+    if "gcp_service_account" in st.secrets:
+        st.sidebar.success("☁️ Using: Google Drive")
+    else:
+        st.sidebar.error("❌ Google Drive not configured")
 
 # --- Main Layout ---
 
@@ -109,19 +143,37 @@ with col_left:
     """)
 
 with col_right:
-    st.subheader("Shot Info")
+    st.subheader("Database Overview")
+    
+    # Get shot list based on database type
+    try:
+        if st.session_state["database_type"] == "Local Files":
+            import os
+            local_path = st.session_state["local_data_path"]
+            if os.path.exists(local_path):
+                available_shots = [d for d in sorted(os.listdir(local_path), reverse=True) 
+                                 if os.path.isdir(os.path.join(local_path, d)) and d.isdigit()]
+            else:
+                available_shots = []
+        else:
+            available_shots = utils.get_shot_list()
+            available_shots = [s for s in available_shots if s != "1001"]  # Remove placeholder
+    except:
+        available_shots = []
+    
     latest_shot = available_shots[0] if available_shots else "N/A"
     current_date = datetime.date.today().strftime("%B %d, %Y")
     
-    st.info(f"Current Selected Shot: **{st.session_state['current_shot']}**")
+    st.info(f"Database: **{st.session_state['database_type']}**")
     st.success(f"Latest Available Shot: **{latest_shot}**")
+    st.metric("Total Discharges", len(available_shots))
     st.write(f"📅 **Date:** {current_date}")
     
-    st.markdown("Use the sidebar **Database Status** section to change the active discharge number for analysis.")
+    st.markdown("Use the sidebar **Database Configuration** to select your data source.")
     
     st.divider()
     
-    st.subheader("Mantained By")
+    st.subheader("Maintained By")
     st.markdown("""
     **Thailand Tokamak-1 Team**and **Apiwat Wisitsorasak**  
     """)

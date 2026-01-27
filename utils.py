@@ -9,52 +9,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 # ==========================================
-# Authentication
-# ==========================================
-
-def check_auth():
-    """
-    Checks if the user is authenticated.
-    Returns True if authenticated, False otherwise.
-    Displays a password input if not authenticated.
-    """
-    if st.session_state.get('password_correct', False):
-        return True
-
-    # Show input
-    if os.path.exists("assets/T-TEAM_Banner_03B.png"):
-        st.image("assets/T-TEAM_Banner_03B.png", width="stretch")
-    st.header("🔒 Login Required")
-    
-    pwd = st.text_input("Enter Access Password:", type="password")
-    
-    if pwd:
-        correct_password = None
-        # Check root level
-        if "school_password" in st.secrets:
-            correct_password = st.secrets["school_password"]
-        elif "password" in st.secrets:
-            correct_password = st.secrets["password"]  
-        # Check inside [github] block (legacy)
-        elif "github" in st.secrets:
-             if "school_password" in st.secrets["github"]:
-                correct_password = st.secrets["github"]["school_password"]
-             elif "password" in st.secrets["github"]:
-                 correct_password = st.secrets["github"]["password"]
-
-        if correct_password is None:
-             st.error("Password not configured in secrets.")
-             return False
-
-        if pwd == correct_password:
-            st.session_state['password_correct'] = True
-            st.rerun()
-        else:
-            st.error("❌ Incorrect Password")
-            
-    return False
-
-# ==========================================
 # Google Drive Integration
 # ==========================================
 
@@ -176,19 +130,131 @@ def read_file_binary(path):
         return None
 
 def file_exists(path):
-    return get_id_from_path(path) is not None
+    """Check if file exists in either local filesystem or Google Drive"""
+    if "database_type" in st.session_state and st.session_state["database_type"] == "Local Files":
+        import os
+        # For local files, check actual filesystem
+        if not os.path.isabs(path):
+            # Relative path - need to check if it exists relative to workspace or data root
+            # First try relative to current directory
+            if os.path.exists(path):
+                return True
+            # Then try relative to data root if we can get it
+            try:
+                root = st.session_state.get("local_data_path", "").rstrip('/')
+                if root:
+                    full_path = os.path.join(root, path)
+                    return os.path.exists(full_path)
+            except:
+                pass
+            return False
+        else:
+            # Absolute path
+            return os.path.exists(path)
+    else:
+        # Google Drive
+        return get_id_from_path(path) is not None
+
+# ==========================================
+# Local File System Operations
+# ==========================================
+
+def list_dirs_local(path):
+    """Lists directories in local filesystem"""
+    import os
+    full_path = path if os.path.isabs(path) else os.path.join(get_data_root(), path)
+    if not os.path.exists(full_path):
+        return []
+    try:
+        return [d for d in os.listdir(full_path) 
+                if os.path.isdir(os.path.join(full_path, d))]
+    except:
+        return []
+
+def list_files_local(path):
+    """Lists files in local filesystem"""
+    import os
+    full_path = path if os.path.isabs(path) else os.path.join(get_data_root(), path)
+    if not os.path.exists(full_path):
+        return []
+    try:
+        return [f for f in os.listdir(full_path) 
+                if os.path.isfile(os.path.join(full_path, f))]
+    except:
+        return []
+
+def read_file_local(path):
+    """Reads a file from local filesystem"""
+    import os
+    full_path = path if os.path.isabs(path) else os.path.join(get_data_root(), path)
+    try:
+        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error reading local file {full_path}: {e}")
+        return None
+
+def read_file_binary_local(path):
+    """Reads a binary file from local filesystem"""
+    import os
+    full_path = path if os.path.isabs(path) else os.path.join(get_data_root(), path)
+    try:
+        with open(full_path, 'rb') as f:
+            return f.read()
+    except:
+        return None
+
+# ==========================================
+# Unified File Operations (Auto-detect source)
+# ==========================================
+
+def list_dirs_unified(path=""):
+    """Lists directories from either local or Google Drive"""
+    if "database_type" in st.session_state and st.session_state["database_type"] == "Local Files":
+        return list_dirs_local(path)
+    else:
+        return list_dirs(path)
+
+def list_files_unified(path=""):
+    """Lists files from either local or Google Drive"""
+    if "database_type" in st.session_state and st.session_state["database_type"] == "Local Files":
+        return list_files_local(path)
+    else:
+        return list_files(path)
+
+def read_file_unified(path):
+    """Reads a file from either local or Google Drive"""
+    if "database_type" in st.session_state and st.session_state["database_type"] == "Local Files":
+        return read_file_local(path)
+    else:
+        return read_file(path)
+
+def read_file_binary_unified(path):
+    """Reads a binary file from either local or Google Drive"""
+    if "database_type" in st.session_state and st.session_state["database_type"] == "Local Files":
+        return read_file_binary_local(path)
+    else:
+        return read_file_binary(path)
 
 # ==========================================
 # Domain Specific Helpers
 # ==========================================
 
-@st.cache_data
 def get_data_root():
     """
-    Determines if shots are in root or 'data' folder.
-    Prioritizes 'data' folder if it exists.
+    Determines the data root path based on database configuration.
+    Checks session state for database type and local path settings.
+    Note: This function is NOT cached to allow dynamic switching between databases.
     """
     try:
+        # Check if using local files from session state
+        if "database_type" in st.session_state and st.session_state["database_type"] == "Local Files":
+            if "local_data_path" in st.session_state:
+                local_path = st.session_state["local_data_path"]
+                # Return the path directly (already absolute)
+                return local_path.rstrip('/')
+        
+        # Default behavior for Google Drive or when not configured
         # Check if 'data' folder exists
         if file_exists("data"):
             # If it has numeric folders OR shot files, use it.
@@ -202,11 +268,10 @@ def get_data_root():
     
     return "data" # Optimistic default
 
-@st.cache_data
 def get_shot_list():
     """Returns a sorted list of available shot numbers."""
     root_loc = get_data_root()
-    dirs = list_dirs(root_loc)
+    dirs = list_dirs_unified(root_loc if root_loc else "")
     shots = [d for d in dirs if d.isdigit()]
     if not shots:
         return ["1001"] # Placeholder
@@ -218,13 +283,13 @@ def load_timeseries(shot_id):
     root = get_data_root()
     path = f"{root}/shot_{shot_id}.txt" if root else f"shot_{shot_id}.txt"
     
-    content = read_file(path)
+    content = read_file_unified(path)
     if content:
          return pd.read_csv(io.StringIO(content), sep=r'\s+', comment='#')
     
     # Fallback: maybe inside the shot folder?
     path_inner = f"{root}/{shot_id}/shot_{shot_id}.txt" if root else f"{shot_id}/shot_{shot_id}.txt"
-    content_inner = read_file(path_inner)
+    content_inner = read_file_unified(path_inner)
     if content_inner:
         return pd.read_csv(io.StringIO(content_inner), sep=r'\s+', comment='#')
         
@@ -236,7 +301,7 @@ def load_hxr_data(shot_id):
     path = f"{root}/shot_{shot_id}_hxr.csv"
     if not root: path = f"shot_{shot_id}_hxr.csv"
     
-    content = read_file(path)
+    content = read_file_unified(path)
     if content:
         return pd.read_csv(io.StringIO(content))
     return None
@@ -245,12 +310,12 @@ def get_video_bytes(shot_id):
     root = get_data_root()
     path = f"{root}/shot_{shot_id}_cam.mp4"
     if not root: path = f"shot_{shot_id}_cam.mp4"
-    return read_file_binary(path)
+    return read_file_binary_unified(path)
 
-# Aliases for compatibility
-read_github_file = read_file
-read_github_file_binary = read_file_binary
-list_github_dirs = list_dirs
-list_github_files = list_files
+# Aliases for compatibility (use unified versions by default)
+read_github_file = read_file_unified
+read_github_file_binary = read_file_binary_unified
+list_github_dirs = list_dirs_unified
+list_github_files = list_files_unified
 get_github_shot_list = get_shot_list
 github_file_exists = file_exists
