@@ -377,7 +377,14 @@ else:
                 if not default_signals and len(signal_choices) >= 2:
                     default_signals = signal_choices[:2]
             else:
-                default_signals = st.session_state["selected_signals_ms"]
+                # Filter previous session state to only include signals available in current discharge
+                default_signals = [sig for sig in st.session_state["selected_signals_ms"] if sig in signal_choices]
+                # If filtering removed all signals, use defaults
+                if not default_signals:
+                    defaults_req = signal_groups["Default plot"]
+                    default_signals = [sig for sig in defaults_req if sig in signal_choices]
+                    if not default_signals and len(signal_choices) >= 2:
+                        default_signals = signal_choices[:2]
             
             signal_list = st.sidebar.multiselect(
                 "Select signal (for plotting)", 
