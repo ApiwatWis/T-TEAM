@@ -90,8 +90,14 @@ def load_labr3_signal(base_path, shot_id, detector_name):
 
         timetag_0 = df['TIMETAG'].values
         
-        # Time conversion
-        time_sec = timetag_0 / 250e6 / 1000.0 / 4.0
+        # Time conversion based on typical LaBr3 setup (checking Sample Scripts)
+        # TIMETAG is shifted by 12 bits (4096) and clock is 250 MHz (4ns)
+        # time_sec = TIMETAG / 4096 * 4e-9
+        
+        sampling_rate = 4e-9 
+        bit_shift = 4000 # 2**12
+        
+        time_sec = timetag_0 / bit_shift * sampling_rate    
         time_ms = time_sec * 1000.0
 
         if len(time_ms) == 0:
@@ -109,7 +115,7 @@ def load_labr3_signal(base_path, shot_id, detector_name):
             max_bin_idx = np.argmax(hist)
             center_time = (edges[max_bin_idx] + edges[max_bin_idx + 1]) / 2
             
-            start_t = max(0, center_time - max_duration/2)
+            start_t = np.floor(max(0, center_time - max_duration/2))
             end_t = start_t + max_duration
         else:
             start_t = np.floor(time_min)
@@ -125,7 +131,7 @@ def load_labr3_signal(base_path, shot_id, detector_name):
         counts, bin_edges = np.histogram(time_ms, bins=bins)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
         
-        rate = counts / (bin_size / 1000.0) # Hz
+        rate = counts  / (bin_size / 1000.0) # Hz
         
         return pd.DataFrame({
             "Time": bin_centers,
@@ -162,7 +168,11 @@ def load_labr3_energy(base_path, shot_id, detector_name, t_start=None, t_end=Non
         # Filter by time if range is provided
         if t_start is not None and t_end is not None and 'TIMETAG' in df.columns:
             timetag_0 = df['TIMETAG'].values
-            time_sec = timetag_0 / 250e6 / 1000.0 / 4.0
+            
+            sampling_rate = 4e-9 
+            bit_shift = 2**12
+            
+            time_sec = timetag_0 / bit_shift * sampling_rate
             time_ms = time_sec * 1000.0
             
             # Create time mask
@@ -647,6 +657,7 @@ else:
             
             data_found_for_sig = False
             missing_shots = []
+            max_counts_for_scaling = 0
 
             for shot in selected_shots:
                 df = pd.DataFrame()
@@ -692,6 +703,9 @@ else:
 
                     if is_labr3:
                         y_data_for_annot = df["Counts"]
+                        current_max_counts = df["Counts"].max()
+                        if current_max_counts > max_counts_for_scaling:
+                            max_counts_for_scaling = current_max_counts
                         
                         # Plot Counts (Left Axis)
                         fig.add_trace(go.Scatter(
@@ -771,8 +785,48 @@ else:
 
             # Update axes
             if sig.upper().startswith("LABR3"):
-                fig.update_yaxes(title_text="Counts", row=row, col=col, secondary_y=False)
-                fig.update_yaxes(title_text="Count Rate (cps)", row=row, col=col, secondary_y=True)
+                # Synchronize axes ranges
+                if max_counts_for_scaling > 0:
+                    ymax = max_counts_for_scaling * 1.1 # 10% padding
+                    
+                    # Ensure range includes the limit line if it's close? 
+                    # Limit is 300,000 cps -> 300 counts.
+                    # If max count is > 300, we are good.
+                    # If max count is small, say 10, then 300 is far above. 
+                    # If we force range to data, line is off chart.
+                    
+                    # Primary (Counts)
+                    fig.update_yaxes(
+                        title_text="Counts", 
+                        row=row, col=col, 
+                        secondary_y=False,
+                        range=[0, ymax]
+                    )
+                    
+                    # Secondary (Rate)
+                    # Rate = Counts * 1000
+                    fig.update_yaxes(
+                        title_text="Count Rate (cps)", 
+                        row=row, col=col, 
+                        secondary_y=True,
+                        range=[0, ymax * 1000]
+                    )
+                else:
+                     # Fallback if no data
+                    fig.update_yaxes(title_text="Counts", row=row, col=col, secondary_y=False)
+                    fig.update_yaxes(title_text="Count Rate (cps)", row=row, col=col, secondary_y=True)
+
+                # Add Count Rate limit line
+                fig.add_hline(
+                    y=300000, 
+                    line_dash="dash", 
+                    line_color="orange",
+                    annotation_text="Limit (300kcps)", 
+                    annotation_position="top right",
+                    row=row, 
+                    col=col, 
+                    secondary_y=True
+                )
             else:
                 fig.update_yaxes(
                     title_text=ylabels.get(sig, sig),
