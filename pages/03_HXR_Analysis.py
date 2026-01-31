@@ -365,9 +365,36 @@ else:
                 key="hxr_highlight_ref"
             )
     
+    # Line style selector
+    line_style_option = st.sidebar.radio(
+        "Line Style",
+        ["Line", "Dots + Line", "Dots"],
+        key="hxr_line_style",
+        horizontal=True
+    )
+    
+    # Map line style option to plotly mode
+    if line_style_option == "Dots":
+        plot_mode = "markers"
+    elif line_style_option == "Dots + Line":
+        plot_mode = "lines+markers"
+    else:  # Line
+        plot_mode = "lines"
+    
     # Time Range Inputs
     st.sidebar.markdown("---")
     st.sidebar.header("Time Range")
+    
+    # Reset button (placed before inputs to process first)
+    if st.sidebar.button("Reset to Default (250-500 ms)", key="hxr_reset_time_range"):
+        st.session_state["hxr_plot_t0"] = 250
+        st.session_state["hxr_plot_t1"] = 500
+        # Clear widget states to force update
+        if "hxr_t0_input" in st.session_state:
+            del st.session_state["hxr_t0_input"]
+        if "hxr_t1_input" in st.session_state:
+            del st.session_state["hxr_t1_input"]
+        st.rerun()
     
     t0 = st.sidebar.number_input(
         "Plot Start time (ms)", 
@@ -660,8 +687,9 @@ else:
                         name=f"{shot}",
                         legendgroup=f"group_{shot}",
                         showlegend=show_legend,
-                        mode="lines",
-                        line=dict(color=color_map.get(shot, "gray"))
+                        mode=plot_mode,
+                        line=dict(color=color_map.get(shot, "gray")),
+                        marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
                     ), row=row, col=col)
                     
                     # Add discharge interval highlighting
