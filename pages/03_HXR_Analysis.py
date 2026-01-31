@@ -135,6 +135,59 @@ def load_labr3_signal(base_path, shot_id, detector_name):
     except Exception as e:
         return pd.DataFrame()
 
+def load_labr3_energy(base_path, shot_id, detector_name, t_start=None, t_end=None):
+    """
+    Loads LaBr3 energy data (keV) filtered by time range.
+    detector_name: 'LaBr3_1' or 'LaBr3_2'
+    t_start, t_end: Time range in ms (optional)
+    """
+    try:
+        # Try both .CSV and .csv extensions
+        content = None
+        for ext in ['.CSV', '.csv']:
+            filename = f"{detector_name}{ext}"
+            file_path = os.path.join(base_path, shot_id, filename)
+            content = utils.read_github_file(file_path)
+            if content:
+                break
+        
+        if not content:
+            return np.array([])
+
+        df = pd.read_csv(io.StringIO(content), delimiter=';', header=0)
+        if df.empty or 'ENERGY' not in df.columns:
+            return np.array([])
+
+        # Filter by time if range is provided
+        if t_start is not None and t_end is not None and 'TIMETAG' in df.columns:
+            timetag_0 = df['TIMETAG'].values
+            time_sec = timetag_0 / 250e6 / 1000.0 / 4.0
+            time_ms = time_sec * 1000.0
+            
+            # Create time mask
+            time_mask = (time_ms >= t_start) & (time_ms <= t_end)
+            df = df[time_mask]
+        
+        if df.empty:
+            return np.array([])
+        
+        q = df['ENERGY'].values
+        
+        if len(q) == 0:
+            return np.array([])
+            
+        # Apply energy calibration
+        if detector_name == "LaBr3_2":
+            # Formula: E = 1.85*q - 57.44
+            E = 1.85 * q - 57.44
+        else:
+            # Default / LaBr3_1 Formula: E = 2.8775*q - 66.0934
+            E = 2.8775 * q - 66.0934
+            
+        return E
+    except Exception as e:
+        return np.array([])
+
 def get_available_signals(base_path, sample_shot):
     """Retrieves a list of available signal files for a given shot."""
     if not sample_shot:
@@ -213,6 +266,15 @@ if "hxr_plot_t0" not in st.session_state:
 
 if "hxr_plot_t1" not in st.session_state:
     st.session_state["hxr_plot_t1"] = 500
+
+if "hxr_spectrum_t0" not in st.session_state:
+    st.session_state["hxr_spectrum_t0"] = 250
+
+if "hxr_spectrum_t1" not in st.session_state:
+    st.session_state["hxr_spectrum_t1"] = 500
+
+if "hxr_spectrum_plot_clicked" not in st.session_state:
+    st.session_state["hxr_spectrum_plot_clicked"] = False
 
 # -----------------------------
 # Get Available Shots
@@ -321,6 +383,46 @@ else:
     # Update session state
     st.session_state["hxr_plot_t0"] = t0
     st.session_state["hxr_plot_t1"] = t1
+    
+    # HXR Spectrum Options
+    st.sidebar.markdown("---")
+    st.sidebar.header("HXR Spectrum Options")
+    
+    show_hxr_spectrum = st.sidebar.toggle(
+        "Show HXR Energy Spectra", 
+        value=False, 
+        key="hxr_show_spectrum",
+        help="Plot energy spectra for selected time interval"
+    )
+    
+    spectrum_scale = "Semi-log (Linear-Log)"
+    if show_hxr_spectrum:
+        st.sidebar.markdown("**Spectrum Time Interval**")
+        
+        spec_t0 = st.sidebar.number_input(
+            "Spectrum Start time (ms)",
+            value=st.session_state["hxr_spectrum_t0"],
+            key="hxr_spectrum_t0_input"
+        )
+        spec_t1 = st.sidebar.number_input(
+            "Spectrum End time (ms)",
+            value=st.session_state["hxr_spectrum_t1"],
+            key="hxr_spectrum_t1_input"
+        )
+        
+        # Update session state
+        st.session_state["hxr_spectrum_t0"] = spec_t0
+        st.session_state["hxr_spectrum_t1"] = spec_t1
+        
+        if st.sidebar.button("Re-plot Spectra", key="hxr_replot_spectrum"):
+            st.session_state["hxr_spectrum_plot_clicked"] = True
+        
+        spectrum_scale = st.sidebar.radio(
+            "Spectrum Plot Scale",
+            ["Semi-log (Linear-Log)", "Linear-Linear", "Log-Log"],
+            key="hxr_spectrum_scale",
+            help="Semi-log: x-axis linear, y-axis log10 (default)"
+        )
 
     # --- Y-axis Labels and Subplot Titles ---
     # Combine reference signals with LaBr3 detectors
@@ -628,8 +730,169 @@ else:
             dragmode="zoom"  # Enable box zoom mode
         )
         
-        # Display plot
-        st.plotly_chart(fig, key="hxr_main_plot", use_container_width=True)
+        # Display current data range
+        st.markdown(f"**📊 Loaded Data Range:** {t0} - {t1} ms | **Duration:** {t1 - t0} ms")
+        
+        # Display plot with box selection event handling
+        selection = st.plotly_chart(
+            fig, 
+            key="hxr_main_plot", 
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="box"
+        )
+        
+        # Handle box selection to update time range
+        if selection:
+            # Debug: show what we received
+            # st.write("Selection object:", selection)
+            
+            if hasattr(selection, 'selection') and selection.selection:
+                # st.write("Selection data:", selection.selection)
+                
+                # Try different ways to access box selection data
+                try:
+                    # Method 1: Direct box access
+                    if 'box' in selection.selection:
+                        boxes = selection.selection['box']
+                        if boxes and len(boxes) > 0:
+                            box = boxes[0]
+                            if 'x' in box and len(box['x']) >= 2:
+                                new_t0 = round(min(box['x']), 1)
+                                new_t1 = round(max(box['x']), 1)
+                                
+                                if (abs(new_t0 - st.session_state["hxr_plot_t0"]) > 0.1 or 
+                                    abs(new_t1 - st.session_state["hxr_plot_t1"]) > 0.1):
+                                    st.session_state["hxr_plot_t0"] = new_t0
+                                    st.session_state["hxr_plot_t1"] = new_t1
+                                    st.rerun()
+                    
+                    # Method 2: Check for x0, x1 in selection
+                    elif 'x0' in selection.selection and 'x1' in selection.selection:
+                        new_t0 = round(min(selection.selection['x0'], selection.selection['x1']), 1)
+                        new_t1 = round(max(selection.selection['x0'], selection.selection['x1']), 1)
+                        
+                        if (abs(new_t0 - st.session_state["hxr_plot_t0"]) > 0.1 or 
+                            abs(new_t1 - st.session_state["hxr_plot_t1"]) > 0.1):
+                            st.session_state["hxr_plot_t0"] = new_t0
+                            st.session_state["hxr_plot_t1"] = new_t1
+                            st.rerun()
+                            
+                except Exception as e:
+                    st.error(f"Error processing selection: {e}")
         
         # Info about zoom functionality
-        st.info("💡 **Tip**: Click and drag on any plot to zoom in. Use the zoom tools in the top-right corner to pan, zoom, or reset the view.")
+        st.info("💡 **Tip**: Use the Box Select tool (📦) from the toolbar, then drag on the plot to select a time range. The sidebar inputs will update automatically.")
+        
+        # --- HXR Energy Spectrum Plotting ---
+        if show_hxr_spectrum:
+            st.markdown("---")
+            st.write("### HXR Energy Spectra (Time-Filtered)")
+            
+            # Use spectrum-specific time range
+            spec_t0 = st.session_state["hxr_spectrum_t0"]
+            spec_t1 = st.session_state["hxr_spectrum_t1"]
+            
+            st.caption(f"Energy spectra for events within time range: {spec_t0} - {spec_t1} ms")
+            
+            # Check if LaBr3 signals are available
+            labr3_detectors = ["LaBr3_1", "LaBr3_2"]
+            labr3_with_data = []
+            
+            # Check which detectors have data
+            for detector in labr3_detectors:
+                for shot in selected_shots:
+                    energies = load_labr3_energy(BASE_PATH, shot, detector, spec_t0, spec_t1)
+                    if len(energies) > 0:
+                        labr3_with_data.append(detector)
+                        break
+            
+            labr3_with_data = list(set(labr3_with_data))  # Remove duplicates
+            
+            if not labr3_with_data:
+                st.warning("No LaBr3 energy data available for the selected discharges and time range.")
+            else:
+                # Plot spectrum for each detector separately
+                for detector in sorted(labr3_with_data):
+                    spec_fig = go.Figure()
+                    has_data = False
+                    
+                    # Collect all counts to find global maximum for y-axis scaling
+                    all_counts = []
+                    
+                    for shot in selected_shots:
+                        energies = load_labr3_energy(BASE_PATH, shot, detector, spec_t0, spec_t1)
+                        
+                        if len(energies) > 0:
+                            has_data = True
+                            
+                            # Energy binning: 1 keV bins from 0 to 2000 keV
+                            min_e = 0.0
+                            max_e = 2000.0
+                            
+                            bins = np.arange(min_e - 0.5, max_e + 1.5, 1.0)
+                            counts, bin_edges = np.histogram(energies, bins=bins)
+                            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+                            
+                            # Filter to show only non-zero counts
+                            mask = counts > 0
+                            x_plot = bin_centers[mask]
+                            y_plot = counts[mask]
+                            
+                            all_counts.extend(y_plot)
+                            
+                            # Add trace
+                            spec_fig.add_trace(go.Scatter(
+                                x=x_plot,
+                                y=y_plot,
+                                mode='lines+markers',
+                                name=f"{shot}",
+                                line=dict(color=color_map.get(shot, "gray")),
+                                marker=dict(size=4)
+                            ))
+                    
+                    if has_data:
+                        # Calculate y-axis range
+                        if len(all_counts) > 0:
+                            global_max = np.max(all_counts)
+                            y_axis_max = 10 ** np.ceil(np.log10(global_max)) if global_max > 0 else 10
+                        else:
+                            y_axis_max = 10
+                        
+                        # Determine axis types based on scale selection
+                        if spectrum_scale == "Semi-log (Linear-Log)":
+                            x_type = "linear"
+                            y_type = "log"
+                        elif spectrum_scale == "Log-Log":
+                            x_type = "log"
+                            y_type = "log"
+                        else:  # Linear-Linear
+                            x_type = "linear"
+                            y_type = "linear"
+                        
+                        # Update layout
+                        spec_fig.update_layout(
+                            title=f"HXR Energy Spectrum - {detector} ({spectrum_scale})",
+                            xaxis_title="Energy (keV)",
+                            yaxis_title="Counts",
+                            xaxis_type=x_type,
+                            yaxis_type=y_type,
+                            height=450,
+                            hovermode="x unified"
+                        )
+                        
+                        # Set axis ranges
+                        if x_type == "log":
+                            spec_fig.update_xaxes(range=[np.log10(1), np.log10(2000)])
+                        else:
+                            spec_fig.update_xaxes(range=[1, 2000])
+                        
+                        if y_type == "log":
+                            spec_fig.update_yaxes(range=[0, np.log10(y_axis_max)])
+                        else:
+                            spec_fig.update_yaxes(range=[0, y_axis_max])
+                        
+                        # Display the plot
+                        st.plotly_chart(spec_fig, key=f"hxr_spectrum_{detector}", use_container_width=True)
+                
+                st.info(f"📊 **Info**: Spectra calculated from events in time window {spec_t0} - {spec_t1} ms using 1 keV energy bins.")
