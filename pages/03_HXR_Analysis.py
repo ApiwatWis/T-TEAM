@@ -142,6 +142,61 @@ def load_labr3_signal(base_path, shot_id, detector_name):
     except Exception as e:
         return pd.DataFrame()
 
+def load_labr3_events(base_path, shot_id, detector_name, t_start=None, t_end=None):
+    """
+    Loads Time and Energy for individual events from LaBr3 detector.
+    Returns DataFrame with columns ['Time', 'Energy']
+    """
+    try:
+        # Try both .CSV and .csv extensions
+        content = None
+        for ext in ['.CSV', '.csv']:
+            filename = f"{detector_name}{ext}"
+            file_path = os.path.join(base_path, shot_id, filename)
+            content = utils.read_github_file(file_path)
+            if content:
+                break
+        
+        if not content:
+            return pd.DataFrame()
+
+        df = pd.read_csv(io.StringIO(content), delimiter=';', header=0)
+        if df.empty or 'ENERGY' not in df.columns or 'TIMETAG' not in df.columns:
+            return pd.DataFrame()
+
+        timetag_0 = df['TIMETAG'].values
+        
+        # Use constants consistent with sample scripts (see 05_Sample_Scripts.py)
+        # Note: load_labr3_signal uses 4000 for bit_shift, but sample uses 4096 (2**12).
+        # We use 4096 here for correctness.
+        sampling_rate = 4e-9 
+        bit_shift = 4000 # 2**12
+        
+        time_sec = timetag_0 / bit_shift * sampling_rate
+        time_ms = time_sec * 1000.0
+        
+        # Apply energy calibration
+        q = df['ENERGY'].values
+        if detector_name == "LaBr3_2":
+            # Formula: E = 1.85*q - 57.44
+            E = 1.85 * q - 57.44
+        else:
+            # Default / LaBr3_1 Formula: E = 2.8775*q - 66.0934
+            E = 2.8775 * q - 66.0934
+            
+        events_df = pd.DataFrame({
+            "Time": time_ms,
+            "Energy": E
+        })
+
+        # Filter by time if range is provided
+        if t_start is not None and t_end is not None:
+             events_df = events_df[(events_df["Time"] >= t_start) & (events_df["Time"] <= t_end)]
+
+        return events_df
+    except Exception as e:
+        return pd.DataFrame()
+
 def load_labr3_energy(base_path, shot_id, detector_name, t_start=None, t_end=None):
     """
     Loads LaBr3 energy data (keV) filtered by time range.
@@ -170,7 +225,7 @@ def load_labr3_energy(base_path, shot_id, detector_name, t_start=None, t_end=Non
             timetag_0 = df['TIMETAG'].values
             
             sampling_rate = 4e-9 
-            bit_shift = 2**12
+            bit_shift = 4000
             
             time_sec = timetag_0 / bit_shift * sampling_rate
             time_ms = time_sec * 1000.0
@@ -607,9 +662,21 @@ else:
             if low_ip_shots:
                 st.warning(f"Plasma current (IP) is below 2 kA for shots: {', '.join(low_ip_shots)}. Discharge interval highlighting skipped for these shots.")
         
-        # Calculate subplot layout (vertical stacking)
-        num_plots = len(all_signals)
-        subplot_rows = num_plots
+        # Calculate subplot layout
+        subplot_titles = []
+        specs = []
+        
+        for sig in all_signals:
+            if sig.upper().startswith("LABR3"):
+                subplot_titles.append(st_titles.get(sig, sig))           # Trace Plot
+                subplot_titles.append(f"{st_titles.get(sig, sig)} - Energy Events") # Energy Plot
+                specs.append([{"secondary_y": True}])
+                specs.append([{"secondary_y": False}])
+            else:
+                subplot_titles.append(st_titles.get(sig, sig))
+                specs.append([{"secondary_y": False}])
+
+        subplot_rows = len(specs)
         subplot_cols = 1
         
         # Dynamic height calculation
@@ -623,21 +690,13 @@ else:
             if vertical_spacing_val >= max_spacing:
                 vertical_spacing_val = max_spacing * 0.9
 
-        # Create specs for secondary y-axis on LaBr3 plots
-        specs = []
-        for sig in all_signals:
-            if sig.upper().startswith("LABR3"):
-                specs.append([{"secondary_y": True}])
-            else:
-                specs.append([{"secondary_y": False}])
-
         # Create subplots
         fig = make_subplots(
             rows=subplot_rows,
             cols=subplot_cols,
             shared_xaxes=True,
             vertical_spacing=vertical_spacing_val,
-            subplot_titles=[st_titles.get(sig, sig) for sig in all_signals],
+            subplot_titles=subplot_titles,
             specs=specs
         )
 
@@ -645,6 +704,7 @@ else:
         legend_shots_added = set()
         
         total_signals = len(all_signals)
+        current_row = 1
 
         # Plot each signal
         for idx, sig in enumerate(all_signals):
@@ -652,171 +712,164 @@ else:
             progress_bar.progress(progress)
             status_text.text(f"Loading signal: {sig} ({idx+1}/{total_signals})...")
             
-            row = idx + 1
+            row = current_row
             col = 1
             
             data_found_for_sig = False
             missing_shots = []
             max_counts_for_scaling = 0
+            
+            is_labr3 = sig.upper().startswith("LABR3")
 
             for shot in selected_shots:
-                df = pd.DataFrame()
+                # Legend optimization
+                show_legend = False
+                if shot not in legend_shots_added:
+                    show_legend = True
+                    legend_shots_added.add(shot)
                 
-                # Load LaBr3 or standard signal
-                if sig.upper().startswith("LABR3"):
-                    df = load_labr3_signal(BASE_PATH, shot, sig)
-                    if df.empty:
-                        missing_shots.append(shot)
-                else:
-                    filename = f"{sig}.txt"
-                    file_path = os.path.join(BASE_PATH, shot)
-                    
-                    try:
-                        df = load_signal(file_path, filename)
+                y_data_for_annot = None 
+                
+                try:
+                    if is_labr3:
+                        # 1. TIME TRACE PLOT
+                        df = load_labr3_signal(BASE_PATH, shot, sig)
                         if df.empty:
                             missing_shots.append(shot)
-                    except Exception:
-                        df = pd.DataFrame()
-                        missing_shots.append(shot)
+                        else:
+                            df = df[(df["Time"] >= t0) & (df["Time"] <= t1)]
+                            if not df.empty:
+                                data_found_for_sig = True
+                                
+                                y_data_for_annot = df["Counts"]
+                                current_max_counts = df["Counts"].max()
+                                if current_max_counts > max_counts_for_scaling:
+                                    max_counts_for_scaling = current_max_counts
+                                
+                                # Plot Counts (Left Axis)
+                                fig.add_trace(go.Scatter(
+                                    x=df["Time"],
+                                    y=df["Counts"],
+                                    name=f"{shot}",
+                                    legendgroup=f"group_{shot}",
+                                    showlegend=show_legend,
+                                    mode=plot_mode,
+                                    line=dict(color=color_map.get(shot, "gray")),
+                                    marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
+                                ), row=row, col=col, secondary_y=False)
+                                
+                                # Plot Rate (Right Axis)
+                                fig.add_trace(go.Scatter(
+                                    x=df["Time"],
+                                    y=df[sig.upper()],
+                                    name=f"{shot}",
+                                    legendgroup=f"group_{shot}",
+                                    showlegend=False,
+                                    mode=plot_mode,
+                                    line=dict(color=color_map.get(shot, "gray")),
+                                    marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
+                                ), row=row, col=col, secondary_y=True)
 
-                try:
-                    if df.empty:
-                        continue
-                        
-                    # Filter by time range
-                    df = df[(df["Time"] >= t0) & (df["Time"] <= t1)]
-                    if df.empty:
-                        continue
-                    
-                    data_found_for_sig = True
-
-                    # Check if dual axis is needed
-                    is_labr3 = sig.upper().startswith("LABR3")
-
-                    # Legend optimization
-                    show_legend = False
-                    if shot not in legend_shots_added:
-                        show_legend = True
-                        legend_shots_added.add(shot)
-                    
-                    y_data_for_annot = None 
-
-                    if is_labr3:
-                        y_data_for_annot = df["Counts"]
-                        current_max_counts = df["Counts"].max()
-                        if current_max_counts > max_counts_for_scaling:
-                            max_counts_for_scaling = current_max_counts
-                        
-                        # Plot Counts (Left Axis)
-                        fig.add_trace(go.Scatter(
-                            x=df["Time"],
-                            y=df["Counts"],
-                            name=f"{shot}",
-                            legendgroup=f"group_{shot}",
-                            showlegend=show_legend,
-                            mode=plot_mode,
-                            line=dict(color=color_map.get(shot, "gray")),
-                            marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
-                        ), row=row, col=col, secondary_y=False)
-                        
-                        # Plot Rate (Right Axis)
-                        fig.add_trace(go.Scatter(
-                            x=df["Time"],
-                            y=df[sig.upper()],
-                            name=f"{shot} (cps)",
-                            legendgroup=f"group_{shot}",
-                            showlegend=False,
-                            mode=plot_mode,
-                            line=dict(color=color_map.get(shot, "gray")),
-                            marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
-                        ), row=row, col=col, secondary_y=True)
-
-                    else:
-                        # Scale current signals to kA
-                        y_data = df[sig.upper()]
-                        if "I" in sig.upper():
-                            y_data = y_data / 1000
-                        
-                        y_data_for_annot = y_data
-
-                        # Add trace
-                        fig.add_trace(go.Scatter(
-                            x=df["Time"],
-                            y=y_data,
-                            name=f"{shot}",
-                            legendgroup=f"group_{shot}",
-                            showlegend=show_legend,
-                            mode=plot_mode,
-                            line=dict(color=color_map.get(shot, "gray")),
-                            marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
-                        ), row=row, col=col)
-                    
-                    # Add discharge interval highlighting
-                    if highlight_interval and shot in shot_durations:
-                        dur_info = shot_durations[shot]
-                        s_time = dur_info["start_time"]
-                        e_time = dur_info["end_time"]
-                        duration_val = dur_info["duration"]
-                        
-                        if s_time is not None and e_time is not None:
-                            fig.add_vrect(
-                                x0=s_time, x1=e_time,
-                                fillcolor=color_map.get(shot, "pink"),
-                                opacity=0.2,
-                                line_width=0,
-                                row=row, col=col
-                            )
-                            # Duration annotation
-                            # Check if y_data_for_annot is valid
-                            if y_data_for_annot is not None and len(y_data_for_annot) > 0:
-                                y_max_val = np.max(y_data_for_annot)
-                                fig.add_annotation(
-                                    x=s_time + (e_time - s_time) / 2,
-                                    y=y_max_val * 0.9,
-                                    text=f"{duration_val:.1f} ms",
-                                    showarrow=False,
-                                    yshift=10,
-                                    font=dict(color=color_map.get(shot, "black"), size=10),
-                                    row=row, col=col
+                        # 2. ENERGY SCATTER PLOT (Next Row)
+                        row_energy = row + 1
+                        df_events = load_labr3_events(BASE_PATH, shot, sig, t0, t1)
+                        if not df_events.empty:
+                             fig.add_trace(go.Scattergl(
+                                x=df_events["Time"],
+                                y=df_events["Energy"],
+                                name=f"{shot} (Energy)",
+                                legendgroup=f"group_{shot}",
+                                showlegend=False,
+                                mode='markers',
+                                marker=dict(
+                                    size=2, 
+                                    color=color_map.get(shot, "gray"),
+                                    opacity=0.5
                                 )
+                            ), row=row_energy, col=col)
+                            
+                    else:
+                        # STANDARD SIGNAL
+                        filename = f"{sig}.txt"
+                        file_path = os.path.join(BASE_PATH, shot)
+                        
+                        df = load_signal(file_path, filename)
+                        if df.empty:
+                             missing_shots.append(shot)
+                        else:
+                            df = df[(df["Time"] >= t0) & (df["Time"] <= t1)]
+                            if not df.empty:
+                                data_found_for_sig = True
+                                # Scale current signals to kA
+                                y_data = df[sig.upper()]
+                                if "I" in sig.upper():
+                                    y_data = y_data / 1000
+                                
+                                y_data_for_annot = y_data
 
+                                # Add trace
+                                fig.add_trace(go.Scatter(
+                                    x=df["Time"],
+                                    y=y_data,
+                                    name=f"{shot}",
+                                    legendgroup=f"group_{shot}",
+                                    showlegend=show_legend,
+                                    mode=plot_mode,
+                                    line=dict(color=color_map.get(shot, "gray")),
+                                    marker=dict(size=4, color=color_map.get(shot, "gray")) if "markers" in plot_mode else None
+                                ), row=row, col=col)
+                    
+                    # Highlights (only on main row)
+                    if highlight_interval and shot in shot_durations:
+                         dur_info = shot_durations[shot]
+                         s_time = dur_info["start_time"]
+                         e_time = dur_info["end_time"]
+                         duration_val = dur_info["duration"]
+                         
+                         if s_time is not None and e_time is not None:
+                             fig.add_vrect(
+                                 x0=s_time, x1=e_time,
+                                 fillcolor=color_map.get(shot, "pink"),
+                                 opacity=0.2,
+                                 line_width=0,
+                                 row=row, col=col
+                             )
+                             if is_labr3:
+                                 # Also add to energy plot
+                                 fig.add_vrect(
+                                     x0=s_time, x1=e_time,
+                                     fillcolor=color_map.get(shot, "pink"),
+                                     opacity=0.2,
+                                     line_width=0,
+                                     row=row+1, col=col
+                                 )
+                             
+                             if y_data_for_annot is not None and len(y_data_for_annot) > 0:
+                                 y_max_val = np.max(y_data_for_annot)
+                                 fig.add_annotation(
+                                     x=s_time + (e_time - s_time) / 2,
+                                     y=y_max_val * 0.9,
+                                     text=f"{duration_val:.1f} ms",
+                                     showarrow=False,
+                                     yshift=10,
+                                     font=dict(color=color_map.get(shot, "black"), size=10),
+                                     row=row, col=col
+                                 )
+                                 
                 except Exception as e:
                     pass
 
             # Update axes
-            if sig.upper().startswith("LABR3"):
-                # Synchronize axes ranges
+            if is_labr3:
+                # Update Time Trace Axis (row)
                 if max_counts_for_scaling > 0:
-                    ymax = max_counts_for_scaling * 1.1 # 10% padding
-                    
-                    # Ensure range includes the limit line if it's close? 
-                    # Limit is 300,000 cps -> 300 counts.
-                    # If max count is > 300, we are good.
-                    # If max count is small, say 10, then 300 is far above. 
-                    # If we force range to data, line is off chart.
-                    
-                    # Primary (Counts)
-                    fig.update_yaxes(
-                        title_text="Counts", 
-                        row=row, col=col, 
-                        secondary_y=False,
-                        range=[0, ymax]
-                    )
-                    
-                    # Secondary (Rate)
-                    # Rate = Counts * 1000
-                    fig.update_yaxes(
-                        title_text="Count Rate (cps)", 
-                        row=row, col=col, 
-                        secondary_y=True,
-                        range=[0, ymax * 1000]
-                    )
+                    ymax = max_counts_for_scaling * 1.1 
+                    fig.update_yaxes(title_text="Counts", row=row, col=col, secondary_y=False, range=[0, ymax])
+                    fig.update_yaxes(title_text="Count Rate (cps)", row=row, col=col, secondary_y=True, range=[0, ymax * 1000])
                 else:
-                     # Fallback if no data
                     fig.update_yaxes(title_text="Counts", row=row, col=col, secondary_y=False)
                     fig.update_yaxes(title_text="Count Rate (cps)", row=row, col=col, secondary_y=True)
 
-                # Add Count Rate limit line
                 fig.add_hline(
                     y=300000, 
                     line_dash="dash", 
@@ -827,20 +880,19 @@ else:
                     col=col, 
                     secondary_y=True
                 )
+                
+                fig.update_xaxes(title_text="", showticklabels=False, matches='x', row=row, col=col)
+                
+                # Update Energy Axis (row + 1)
+                fig.update_yaxes(title_text="Energy (keV)", row=row+1, col=col)
+                fig.update_xaxes(title_text="Time (ms)", showticklabels=True, matches='x', row=row+1, col=col)
+                
+                # Increment row by 2
+                current_row += 2
             else:
-                fig.update_yaxes(
-                    title_text=ylabels.get(sig, sig),
-                    row=row,
-                    col=col
-                )
-            
-            fig.update_xaxes(
-                title_text="Time (ms)",
-                showticklabels=True,
-                matches='x',
-                row=row,
-                col=col
-            )
+                fig.update_yaxes(title_text=ylabels.get(sig, sig), row=row, col=col)
+                fig.update_xaxes(title_text="Time (ms)", showticklabels=True, matches='x', row=row, col=col)
+                current_row += 1
             
             if not data_found_for_sig:
                 signals_not_found.append(sig)
