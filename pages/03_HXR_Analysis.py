@@ -884,7 +884,7 @@ else:
                 fig.update_xaxes(title_text="", showticklabels=False, matches='x', row=row, col=col)
                 
                 # Update Energy Axis (row + 1)
-                fig.update_yaxes(title_text="Energy (keV)", row=row+1, col=col)
+                fig.update_yaxes(title_text="Energy (keV)", row=row+1, col=col, range=[0, 2000])
                 fig.update_xaxes(title_text="Time (ms)", showticklabels=True, matches='x', row=row+1, col=col)
                 
                 # Increment row by 2
